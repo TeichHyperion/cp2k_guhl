@@ -60,6 +60,7 @@ MODULE exstates_types
       LOGICAL                                            :: debug_forces = .FALSE.
       TYPE(cp_fm_type), POINTER, DIMENSION(:)            :: evect => NULL()
       TYPE(cp_fm_type), POINTER, DIMENSION(:)            :: cpmos => NULL()
+      TYPE(cp_fm_type), POINTER, DIMENSION(:)            :: cp_mos_active => NULL()
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_pe => NULL()
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_hz => NULL()
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_pe_admm => NULL()

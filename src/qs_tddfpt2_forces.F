@@ -223,6 +223,50 @@ CONTAINS
       CALL get_qs_env(qs_env=qs_env, matrix_s=matrix_s)
       NULLIFY (matrix_pe_asymm, matrix_pe_symm)
 
+
+
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! RES !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+      !R_tilde = cpmos_active
+
+      res_section => section_vals_get_subs_vals(tddfpt_section, "REDUCED_EXCITATION_SPACE")
+      CALL section_vals_val_get(res_section, "_SECTION_PARAMETERS_", l_val=do_res)
+
+
+      if (do_res == .True.) then 
+         IF (ASSOCIATED(ex_env%cp_mos_active)) THEN
+            DO ispin = 1, SIZE(ex_env%cp_mos_active)
+               CALL cp_fm_release(ex_env%cp_mos_active(ispin))
+            END DO
+            DEALLOCATE (ex_env%cp_mos_active)
+         END IF
+
+         ALLOCATE (ex_env%cp_mos_active(nspins))
+         ! Create and initialize rectangular matrices of nacc*occ dimension for alpha and beta R_tilde vectors
+         DO ispin = 1, nspins
+            n_active = gs_mos(ispin)%nmo_active 
+            n_occ    = gs_mos(ispin)%nmo_occ
+
+            !CALL cp_fm_get_info( matrix         = gs_mos(ispin)%mos_occ, &
+            !                     matrix_struct  = matrix_struct)
+
+            CALL cp_fm_struct_create(  matrix            = fm_struct, &
+                                       template_fmstruct = gs_mos(ispin)%mos_occ%matrix_struct, &
+                                       nrow_global       = n_active, &
+                                       ncol_global       = n_occ)
+
+            call cp_fm_create(   matrix         = ex_env%cp_mos_active(ispin), &
+                                 matrix_struct  = fm_struct)
+
+            call cp_fm_struct_release(fm_struct)
+
+            CALL cp_fm_set_all(  matrix   = ex_env%cp_mos_active(ispin), &
+                                 alpha    = 0.0_dp)
+         END DO
+      end if
+
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! RES END !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
       ! Build difference density matrix_pe = X*X^T - (C*X^T*S*X*C^T + (C*X^T*S*X*C^T)^T)/2
       !
       CALL dbcsr_allocate_matrix_set(ex_env%matrix_pe, nspins)
