@@ -727,6 +727,8 @@ MODULE cp_control_types
       REAL(kind=dp), DIMENSION(:), POINTER :: mgrid_e_cutoff => NULL()
       !> Parameter for smeared occupation TDA
       TYPE(smeared_type), DIMENSION(:), POINTER :: smeared_occup => NULL()
+      !> use reduced excitation space
+      LOGICAL                              :: do_res = .FALSE.
    END TYPE tddfpt2_control_type
 
 ! **************************************************************************************************

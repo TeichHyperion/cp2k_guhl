@@ -1898,6 +1898,10 @@ CONTAINS
       res_section => section_vals_get_subs_vals(tddfpt_section, "REDUCED_EXCITATION_SPACE")
       CALL section_vals_val_get(res_section, "_SECTION_PARAMETERS_", l_val=do_res)
 
+      tddfpt_control%do_res = do_res
+
+      
+
       ! spin flip TDA
       IF (tddfpt_control%spinflip == no_sf_tddfpt) THEN
          do_sf = .FALSE.

@@ -173,10 +173,10 @@ CONTAINS
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'tddfpt_forces_main'
 
-      INTEGER                                            :: handle, ispin, nspins, spin
-      LOGICAL                                            :: do_sf
+      INTEGER                                            :: handle, ispin, nspins, spin, n_active, n_occ
+      LOGICAL                                            :: do_sf, do_res
       TYPE(admm_type), POINTER                           :: admm_env
-      TYPE(cp_fm_struct_type), POINTER                   :: matrix_struct
+      TYPE(cp_fm_struct_type), POINTER                   :: matrix_struct, fm_struct
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_pe_asymm, matrix_pe_symm, &
                                                             matrix_s, matrix_s_aux_fit
       TYPE(dft_control_type), POINTER                    :: dft_control
@@ -198,12 +198,12 @@ CONTAINS
          do_sf = .TRUE.
       END IF
 
-      ! disable RES-TDDFPT for now
-      DO ispin = 1, nspins
-         IF (gs_mos(ispin)%nmo_occ /= gs_mos(ispin)%nmo_active) THEN
-            CALL cp_abort(__LOCATION__, "RES-TDDFPT Forces NYA")
-         END IF
-      END DO
+      ! disable RES-TDDFPT for now! not anymore!
+      ! DO ispin = 1, nspins
+      !   IF (gs_mos(ispin)%nmo_occ /= gs_mos(ispin)%nmo_active) THEN
+      !      CALL cp_abort(__LOCATION__, "RES-TDDFPT Forces NYA")
+      !   END IF
+      ! END DO
 
       ! rhs of linres equation
       IF (ASSOCIATED(ex_env%cpmos)) THEN
@@ -227,11 +227,9 @@ CONTAINS
 
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! RES !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-      !R_tilde = cpmos_active
+      ! R_tilde = cpmos_active
 
-      res_section => section_vals_get_subs_vals(tddfpt_section, "REDUCED_EXCITATION_SPACE")
-      CALL section_vals_val_get(res_section, "_SECTION_PARAMETERS_", l_val=do_res)
-
+      do_res = tddfpt_control%do_res
 
       if (do_res == .True.) then 
          IF (ASSOCIATED(ex_env%cp_mos_active)) THEN
@@ -246,9 +244,6 @@ CONTAINS
          DO ispin = 1, nspins
             n_active = gs_mos(ispin)%nmo_active 
             n_occ    = gs_mos(ispin)%nmo_occ
-
-            !CALL cp_fm_get_info( matrix         = gs_mos(ispin)%mos_occ, &
-            !                     matrix_struct  = matrix_struct)
 
             CALL cp_fm_struct_create(  matrix            = fm_struct, &
                                        template_fmstruct = gs_mos(ispin)%mos_occ%matrix_struct, &
