@@ -173,7 +173,9 @@ CONTAINS
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'tddfpt_forces_main'
 
-      INTEGER                                            :: handle, ispin, nspins, spin, n_active, n_occ
+      INTEGER                                            :: handle, ispin, nspins, spin, n_active, n_occ, io_unit
+      TYPE(cp_logger_type), POINTER                      :: logger
+
       LOGICAL                                            :: do_sf, do_res
       TYPE(admm_type), POINTER                           :: admm_env
       TYPE(cp_fm_struct_type), POINTER                   :: matrix_struct, fm_struct
@@ -231,6 +233,11 @@ CONTAINS
 
       do_res = tddfpt_control%do_res
 
+
+      logger => cp_get_default_logger()
+      iounit = cp_logger_get_default_io_unit(logger)
+
+
       if (do_res) then 
          IF (ASSOCIATED(ex_env%cp_mos_active)) THEN
             DO ispin = 1, SIZE(ex_env%cp_mos_active)
@@ -245,7 +252,7 @@ CONTAINS
             n_active = gs_mos(ispin)%nmo_active 
             n_occ    = gs_mos(ispin)%nmo_occ
 
-            CALL cp_fm_struct_create(  fmstruct            = fm_struct, &
+            CALL cp_fm_struct_create(  fmstruct          = fm_struct, &
                                        template_fmstruct = gs_mos(ispin)%mos_occ%matrix_struct, &
                                        nrow_global       = n_active, &
                                        ncol_global       = n_occ)
@@ -259,6 +266,8 @@ CONTAINS
                                  alpha    = 0.0_dp)
          END DO
       end if
+
+      print(iounit, *), "Size of R_tilde:", size(ex_env%cp_mos_active(1))
 
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! RES END !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
