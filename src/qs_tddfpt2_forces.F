@@ -175,7 +175,7 @@ CONTAINS
       CHARACTER(LEN=*), PARAMETER :: routineN = 'tddfpt_forces_main'
 
       INTEGER                                            :: handle, ispin, nspins, spin, n_active, n_occ, io_unit ,&
-                                                            nrow_global_debug, ncol_global_debug
+                                                            nrow_global_debug, ncol_global_debug, n_act_td
       TYPE(cp_logger_type), POINTER                      :: logger
 
       LOGICAL                                            :: do_sf, do_res
