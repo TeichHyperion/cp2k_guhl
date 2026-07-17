@@ -271,8 +271,9 @@ CONTAINS
 
       call cp_fm_get_info(ex_env%cp_mos_active(1), nrow_global = nrow_global_debug, ncol_global = ncol_global_debug)
 
-      write(io_unit, *) "Size of R_tilde:", nrow_global_debug, ncol_global_debug
-
+      if (io_unit > 0) then
+         write(io_unit, *) "Size of R_tilde:", nrow_global_debug, ncol_global_debug
+      end if
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! RES END !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
       ! Build difference density matrix_pe = X*X^T - (C*X^T*S*X*C^T + (C*X^T*S*X*C^T)^T)/2
