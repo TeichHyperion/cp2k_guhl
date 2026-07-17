@@ -39,6 +39,7 @@ MODULE qs_tddfpt2_forces
                                               cp_fm_type
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_get_default_unit_nr,&
+                                              cp_logger_get_default_io_unit,&
                                               cp_logger_type
    USE exstates_types,                  ONLY: excited_energy_type,&
                                               exstate_potential_release
@@ -235,7 +236,7 @@ CONTAINS
 
 
       logger => cp_get_default_logger()
-      iounit = cp_logger_get_default_io_unit(logger)
+      io_unit = cp_logger_get_default_io_unit(logger)
 
 
       if (do_res) then 
@@ -267,7 +268,7 @@ CONTAINS
          END DO
       end if
 
-      print(iounit, *), "Size of R_tilde:", size(ex_env%cp_mos_active(1))
+      write(io_unit, *), "Size of R_tilde:", size(ex_env%cp_mos_active(1))
 
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! RES END !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
