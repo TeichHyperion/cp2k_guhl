@@ -231,7 +231,7 @@ CONTAINS
 
       do_res = tddfpt_control%do_res
 
-      if (do_res == .True.) then 
+      if (do_res) then 
          IF (ASSOCIATED(ex_env%cp_mos_active)) THEN
             DO ispin = 1, SIZE(ex_env%cp_mos_active)
                CALL cp_fm_release(ex_env%cp_mos_active(ispin))
