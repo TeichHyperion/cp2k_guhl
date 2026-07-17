@@ -245,7 +245,7 @@ CONTAINS
             n_active = gs_mos(ispin)%nmo_active 
             n_occ    = gs_mos(ispin)%nmo_occ
 
-            CALL cp_fm_struct_create(  matrix            = fm_struct, &
+            CALL cp_fm_struct_create(  fmstruct            = fm_struct, &
                                        template_fmstruct = gs_mos(ispin)%mos_occ%matrix_struct, &
                                        nrow_global       = n_active, &
                                        ncol_global       = n_occ)
