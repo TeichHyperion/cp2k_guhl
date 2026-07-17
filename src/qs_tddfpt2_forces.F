@@ -174,7 +174,8 @@ CONTAINS
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'tddfpt_forces_main'
 
-      INTEGER                                            :: handle, ispin, nspins, spin, n_active, n_occ, io_unit
+      INTEGER                                            :: handle, ispin, nspins, spin, n_active, n_occ, io_unit ,&
+                                                            nrow_global_debug, ncol_global_debug
       TYPE(cp_logger_type), POINTER                      :: logger
 
       LOGICAL                                            :: do_sf, do_res
@@ -268,7 +269,9 @@ CONTAINS
          END DO
       end if
 
-      write(io_unit, *), "Size of R_tilde:", size(ex_env%cp_mos_active(1))
+      call cp_fm_get_info(ex_env%cp_mos_active(1), nrow_global = nrow_global_debug, ncol_global = ncol_global_debug)
+
+      write(io_unit, *) "Size of R_tilde:", nrow_global_debug, ncol_global_debug
 
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! RES END !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
