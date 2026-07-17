@@ -253,6 +253,8 @@ CONTAINS
          DO ispin = 1, nspins
             n_active = gs_mos(ispin)%nmo_active 
             n_occ    = gs_mos(ispin)%nmo_occ
+            n_act_td = tddfpt_control%nactive(ispin) 
+
 
             CALL cp_fm_struct_create(  fmstruct          = fm_struct, &
                                        template_fmstruct = gs_mos(ispin)%mos_occ%matrix_struct, &
@@ -272,7 +274,12 @@ CONTAINS
       call cp_fm_get_info(ex_env%cp_mos_active(1), nrow_global = nrow_global_debug, ncol_global = ncol_global_debug)
 
       if (io_unit > 0) then
+         write(io_unit, *) " ################ RES ############## "
+         write(io_unit, *) "Size of act, oc, act_ex:", n_active, n_occ, n_act_td
+
          write(io_unit, *) "Size of R_tilde:", nrow_global_debug, ncol_global_debug
+         write(io_unit, *) " ################ RES ############## "
+
       end if
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! RES END !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
