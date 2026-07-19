@@ -834,7 +834,7 @@ CONTAINS
 !> \param matrix_hz Holds H_{\mu\nu\sigma}[matrix_pe] on exit
 !> \param cpmos ...
 ! **************************************************************************************************
-   SUBROUTINE tddfpt_resvec2(qs_env, matrix_pe, matrix_pe_admm, gs_mos, matrix_hz, cpmos)
+   SUBROUTINE tddfpt_resvec2(qs_env, matrix_pe, matrix_pe_admm, gs_mos, matrix_hz, cpmos, cp_mos_active)
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_pe, matrix_pe_admm
@@ -842,6 +842,8 @@ CONTAINS
          POINTER                                         :: gs_mos
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_hz
       TYPE(cp_fm_type), DIMENSION(:), INTENT(INOUT)      :: cpmos
+      TYPE(cp_fm_type), DIMENSION(:), INTENT(INOUT), &
+      OPTIONAL                                           :: cp_mos_active
 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'tddfpt_resvec2'
 
@@ -889,7 +891,7 @@ CONTAINS
                                                             xc_section
       TYPE(task_list_type), POINTER                      :: task_list
       TYPE(xc_rho_cflags_type)                           :: needs
-
+      INTEGER                                            :: n_active, n_occ
       CALL timeset(routineN, handle)
 
       NULLIFY (pw_env)
@@ -903,6 +905,11 @@ CONTAINS
       CPASSERT(.NOT. dft_control%tddfpt2_control%do_exck)
       CPASSERT(.NOT. dft_control%tddfpt2_control%do_hfxsr)
       CPASSERT(.NOT. dft_control%tddfpt2_control%do_hfxlr)
+
+
+      
+
+
 
       NULLIFY (auxbas_pw_pool, poisson_env)
       ! gets the tmp grids
@@ -1400,6 +1407,56 @@ CONTAINS
                                       norb, alpha=focc, beta=0.0_dp)
       END DO
 
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! RES !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+      if (present(cp_mos_active)) then 
+         do ispin = 1, nspins
+            n_occ = gs_mos(ispin)%nmo_occ
+            n_act = gs_mos(ispin)%nmo_active
+            
+            ! C_active^T * (H * C_occ)
+            call parallel_gemm(  transa   = "T",                        &
+                                 transb   = "N",                        &
+                                 m        = n_act,                      &
+                                 n        = n_occ,                      &
+                                 k        = nao,                        &
+                                 alpha    = 1.0_dp,                     &
+                                 matrix_a = gs_mos(ispin)%mos_active,   &
+                                 matrix_b = cpmos(ispin),               &
+                                 beta     = 0.0_dp,                     &
+                                 matrix_c = cp_mos_active(ispin))
+            
+            ! (H * C_active)^T * C_occ
+            call cp_fm_create(fm_work_nao_nact, gs_mos(ispin)%mos_active%matrix_struct)
+
+            ! H * C_act
+            call cp_dbcsr_sm_fm_multiply( matrix   = matrix_hz(ispin)%matrix,    &
+                                          fm_in    = gs_mos(ispin)%mos_active,   &
+                                          fm_out   = fm_work_nao_nact,           &
+                                          n_col    = n_act,                      &
+                                          alpha    = focc,                       &
+                                          beta     = 0.0_dp  )
+            
+            ! - H * C_occ                              
+            call parallel_gemm(  transa   = "T",                     &
+                                 transb   = "N",                     &
+                                 m        = n_act,                   &
+                                 n        = n_occ,                   &
+                                 k        = nao,                     &
+                                 alpha    = -1.0_dp,                 &
+                                 matrix_a = fm_work_nao_nact,        &
+                                 matrix_b = gs_mos(ispin)%mos_occ,   &
+                                 beta     = 1.0_dp,                  &
+                                 matrix_c = cp_mos_active(ispin))
+
+            CALL cp_fm_release(fm_work_nao_act)
+
+         end do
+      end if
+
+         !  notiz für später später : P in responce force P = D^Z +T + D_tilde^Z
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! END RES !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
       CALL timestop(handle)
 
    END SUBROUTINE tddfpt_resvec2
@@ -1597,7 +1654,7 @@ CONTAINS
 
       IF (tddfpt_control%kernel == tddfpt_kernel_full) THEN
          ! full Kernel
-         CALL fhxc_force(qs_env, ex_env, gs_mos, kernel_env%full_kernel, debug_forces)
+         CALL fhxc_force(qs_env, ex_env, gs_mos, kernel_env%full_kernel, debug_forces) ! here to alle beiträge 
       ELSE IF (tddfpt_control%kernel == tddfpt_kernel_stda) THEN
          ! sTDA Kernel
          CALL stda_force(qs_env, ex_env, gs_mos, kernel_env%stda_kernel, sub_env, work_matrices, debug_forces)
