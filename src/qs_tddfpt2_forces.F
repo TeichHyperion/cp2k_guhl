@@ -891,7 +891,9 @@ CONTAINS
                                                             xc_section
       TYPE(task_list_type), POINTER                      :: task_list
       TYPE(xc_rho_cflags_type)                           :: needs
-      INTEGER                                            :: n_active, n_occ
+      INTEGER                                            :: n_act, n_occ
+      TYPE(cp_fm_type), POINTER                          :: fm_work_nao_nact
+
       CALL timeset(routineN, handle)
 
       NULLIFY (pw_env)
@@ -1428,7 +1430,7 @@ CONTAINS
             call cp_dbcsr_sm_fm_multiply( matrix   = matrix_hz(ispin)%matrix,    &
                                           fm_in    = gs_mos(ispin)%mos_active,   &
                                           fm_out   = fm_work_nao_nact,           &
-                                          n_col    = n_act,                      &
+                                          nwcol    = n_act,                      &
                                           alpha    = focc,                       &
                                           beta     = 0.0_dp  )
             
