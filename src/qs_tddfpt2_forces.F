@@ -906,11 +906,6 @@ CONTAINS
       CPASSERT(.NOT. dft_control%tddfpt2_control%do_hfxsr)
       CPASSERT(.NOT. dft_control%tddfpt2_control%do_hfxlr)
 
-
-      
-
-
-
       NULLIFY (auxbas_pw_pool, poisson_env)
       ! gets the tmp grids
       CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool, &
@@ -1449,7 +1444,7 @@ CONTAINS
                                  beta     = 1.0_dp,                  &
                                  matrix_c = cp_mos_active(ispin))
 
-            CALL cp_fm_release(fm_work_nao_act)
+            CALL cp_fm_release(fm_work_nao_nact)
 
          end do
       end if
