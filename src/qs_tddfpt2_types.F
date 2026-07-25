@@ -80,6 +80,7 @@ MODULE qs_tddfpt2_types
 ! **************************************************************************************************
 !> \brief Ground state molecular orbitals.
 !> \par History
+!>   * 07.2026 added inactive orbtials [Lukas Guhl]
 !>   * 06.2016 created [Sergey Chulkov]
 ! **************************************************************************************************
    TYPE tddfpt_ground_state_mos
@@ -103,10 +104,14 @@ MODULE qs_tddfpt2_types
       INTEGER                                            :: nmo_occ = -1
       !> number of active occupied orbitals
       INTEGER                                            :: nmo_active = -1
+      INTEGER                                            :: nmo_inactive = -1
       !> indexing of active orbitals
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: index_active
+      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: index_inactive
+
       !> active occupied MOs stored in a matrix form [nao x nmo_active]
       TYPE(cp_fm_type), POINTER                          :: mos_active => NULL()
+      TYPE(cp_fm_type), POINTER                          :: mos_inactive => NULL()
    END TYPE tddfpt_ground_state_mos
 
 ! **************************************************************************************************

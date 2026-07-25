@@ -220,6 +220,9 @@ CONTAINS
                ELSE
                   iw = -1
                END IF
+
+               !CALL response_equation(qs_env, p_env, ex_env%cp_mos_active, iw, tdlr_section) !?
+
                CALL response_equation(qs_env, p_env, ex_env%cpmos, iw, tdlr_section)
                !
                CALL get_qs_env(qs_env, dft_control=dft_control)

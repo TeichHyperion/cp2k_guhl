@@ -33,7 +33,9 @@ MODULE qs_tddfpt2_fhxc_forces
    USE cp_fm_basic_linalg,              ONLY: cp_fm_add_columns,&
                                               cp_fm_geadd,&
                                               cp_fm_row_scale,&
-                                              cp_fm_schur_product
+                                              cp_fm_schur_product,&
+                                              cp_fm_scale_and_add,&
+                                              cp_fm_transpose
    USE cp_fm_pool_types,                ONLY: fm_pool_create_fm,&
                                               fm_pool_give_back_fm
    USE cp_fm_struct,                    ONLY: cp_fm_struct_create,&
@@ -149,7 +151,7 @@ MODULE qs_tddfpt2_fhxc_forces
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'qs_tddfpt2_fhxc_forces'
 
-   PUBLIC :: fhxc_force, stda_force
+   PUBLIC :: fhxc_force, stda_force, resp_gxc_res, add_gxc_to_lambda_res
 
 ! **************************************************************************************************
 
@@ -175,7 +177,7 @@ CONTAINS
          POINTER                                         :: gs_mos
       TYPE(full_kernel_env_type), INTENT(IN)             :: full_kernel
       LOGICAL, INTENT(IN)                                :: debug_forces
-
+      !TYPE(cp_fm_type), dimension(:), POINTER            :: matrix_gx_test
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'fhxc_force'
 
       CHARACTER(LEN=default_string_length)               :: basis_type
@@ -1343,15 +1345,15 @@ CONTAINS
       ! Initialize mos and dimensions of occupied space
       ! In the following comments mos is referred to as Ca and mos2 as Cb
       spin = 1
-      mos => gs_mos(1)%mos_occ
-      mosa => gs_mos(1)%mos_active
-      norb(1) = gs_mos(1)%nmo_occ
-      nactive(1) = gs_mos(1)%nmo_active
+      mos            => gs_mos(1)%mos_occ
+      mosa           => gs_mos(1)%mos_active
+      norb(1)        =  gs_mos(1)%nmo_occ
+      nactive(1)     =  gs_mos(1)%nmo_active
       IF (nspins == 2) THEN
-         mos2 => gs_mos(2)%mos_occ
-         mosa2 => gs_mos(2)%mos_active
-         norb(2) = gs_mos(2)%nmo_occ
-         nactive(2) = gs_mos(2)%nmo_active
+         mos2        => gs_mos(2)%mos_occ
+         mosa2       => gs_mos(2)%mos_active
+         norb(2)     =  gs_mos(2)%nmo_occ
+         nactive(2)  =  gs_mos(2)%nmo_active
       END IF
       ! Build response vector, Eq. 49, and the third term of \Lamda_munu, Eq. 51
       DO ispin = 1, nspins
@@ -1368,9 +1370,9 @@ CONTAINS
          ! Initialize mos and dimensions of occupied space
          IF (.NOT. do_sf) THEN
             spin = ispin
-            mos => gs_mos(ispin)%mos_occ
-            mos2 => gs_mos(ispin)%mos_occ
-            mosa => gs_mos(ispin)%mos_active
+            mos   => gs_mos(ispin)%mos_occ
+            mos2  => gs_mos(ispin)%mos_occ
+            mosa  => gs_mos(ispin)%mos_active
             mosa2 => gs_mos(ispin)%mos_active
          END IF
 
@@ -1378,13 +1380,15 @@ CONTAINS
          CALL cp_fm_create(cpscr, gs_mos(ispin)%mos_active%matrix_struct, "cpscr", set_zero=.TRUE.)
          !
          CALL cp_fm_get_info(gs_mos(ispin)%mos_occ, matrix_struct=fm_struct, nrow_global=nao)
+         call cp_fm_struct_create(w_bar_struct, template = gs_mos%mos_occ%matrix_struct, nrow_global = nao, ncol_global = norb(ispin))
          !
          CALL cp_fm_create(avamat, fm_struct, nrow=nactive(spin), ncol=nactive(spin))
          CALL cp_fm_create(avcmat, fm_struct, nrow=nactive(spin), ncol=norb(spin))
          CALL cp_fm_create(cvcmat, fm_struct, nrow=norb(spin), ncol=norb(spin))
          !
          CALL cp_fm_create(vcvec, gs_mos(ispin)%mos_occ%matrix_struct, "vcvec")
-         CALL cp_fm_create(vavec, gs_mos(ispin)%mos_active%matrix_struct, "vavec")
+         CALL cp_fm_create(vavec, gs_mos(ispin)%mos_active%matrix_struct, "vavec") ! ao x mo_act
+         call cp_fm_create(w_bar, w_bar_struct, "w_bar")    !mo_occ x mo_occ
 
          ! Allocate and initialize the Lambda matrix
          ALLOCATE (matrix_wx1(ispin)%matrix)
@@ -1436,24 +1440,28 @@ CONTAINS
                CALL cp_dbcsr_plus_fm_fm_t(matrix_wx1(ispin)%matrix, matrix_v=vcvec, matrix_g=gs_mos(ispin)%mos_occ, &
                                           ncol=norb(ispin), alpha=2.0_dp, symmetry_mode=1)
             END IF
-            !
-
+            
+            if (do_res) then 
             ! XC g (third functional derivative) contributions
-            ! g*Ca*focc
-            CALL cp_dbcsr_sm_fm_multiply(matrix_gx(ispin)%matrix, gs_mos(ispin)%mos_occ, &
-                                         cpmos(ispin), norb(ispin), alpha=focc, beta=1.0_dp)
-            ! Add contributions to the \Lambda_munu for the perturbed overlap matrix term, third term of Eq. 51
-            ! g*Ca
-            CALL cp_dbcsr_sm_fm_multiply(matrix_gx(ispin)%matrix, gs_mos(ispin)%mos_occ, vcvec, norb(ispin), &
-                                         alpha=1.0_dp, beta=0.0_dp)
-            ! Ca^T*g*Ca
-            CALL parallel_gemm("T", "N", norb(ispin), norb(ispin), nao, 1.0_dp, gs_mos(ispin)%mos_occ, vcvec, 0.0_dp, cvcmat)
-            ! Ca*Ca^T*g*Ca
-            CALL parallel_gemm("N", "N", nao, norb(ispin), norb(ispin), 1.0_dp, gs_mos(ispin)%mos_occ, cvcmat, 0.0_dp, vcvec)
-            ! Ca*Ca^T*g*Ca*Ca^T
-            CALL cp_dbcsr_plus_fm_fm_t(matrix_wx1(ispin)%matrix, matrix_v=vcvec, matrix_g=gs_mos(ispin)%mos_occ, &
-                                       ncol=norb(ispin), alpha=1.0_dp, symmetry_mode=1)
-            !
+
+               call resp_gxc_res(qs_env, ex_env, gs_mos, cp_mos_active, matrix_gx)
+               call add_gxc_to_lambda_res(qs_env, gs_mos, matrix_gx, matrix_wx1)
+            else
+               CALL cp_dbcsr_sm_fm_multiply(matrix_gx(ispin)%matrix, gs_mos(ispin)%mos_occ, &
+                                          cpmos(ispin), norb(ispin), alpha=focc, beta=1.0_dp)
+               ! Add contributions to the \Lambda_munu for the perturbed overlap matrix term, third term of Eq. 51
+               ! g*Ca
+               CALL cp_dbcsr_sm_fm_multiply(matrix_gx(ispin)%matrix, gs_mos(ispin)%mos_occ, vcvec, norb(ispin), &
+                                          alpha=1.0_dp, beta=0.0_dp)
+               ! Ca^T*g*Ca
+               CALL parallel_gemm("T", "N", norb(ispin), norb(ispin), nao, 1.0_dp, gs_mos(ispin)%mos_occ, vcvec, 0.0_dp, cvcmat)
+               ! Ca*Ca^T*g*Ca
+               CALL parallel_gemm("N", "N", nao, norb(ispin), norb(ispin), 1.0_dp, gs_mos(ispin)%mos_occ, cvcmat, 0.0_dp, vcvec)
+               ! Ca*Ca^T*g*Ca*Ca^T
+               CALL cp_dbcsr_plus_fm_fm_t(matrix_wx1(ispin)%matrix, matrix_v=vcvec, matrix_g=gs_mos(ispin)%mos_occ, &
+                                          ncol=norb(ispin), alpha=1.0_dp, symmetry_mode=1)
+            end if
+
          END IF
          ! Add Fock contributions to the response vector
          IF (do_hfx) THEN
@@ -1491,7 +1499,7 @@ CONTAINS
             END IF
          END IF
          !
-         IF (do_res) THEN
+         IF (do_res) THEN ! not by me, i didn't do this
             DO ia = 1, nactive(ispin)
                ib = gs_mos(ispin)%index_active(ia)
                CALL cp_fm_add_columns(cpscr, cpmos(ispin), 1, 1.0_dp, ia, ib)
@@ -2032,5 +2040,368 @@ CONTAINS
    END SUBROUTINE stda_force
 
 ! **************************************************************************************************
+
+! **************************************************************************************************
+!> \brief Calculates the g^xc contributions to the \tilde{R_Ii} vector. 
+!> \brief These should cancel whenever g_xc is symmetrical!
+!> \param qs_env ...
+!> \param ex_env holds cp_mos_active(nspins) aka \tilde{R_Ii} 
+!> \param gs_mos ...
+!> \param debug_forces default .False. , pass .True. for debugging. Currently does nothing
+! **************************************************************************************************
+   SUBROUTINE resp_gxc_res(qs_env, ex_env, gs_mos, cp_mos_active, matrix_gx)
+      
+      ! name and envs 
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'resp_gxc_res'
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      TYPE(excited_energy_type), POINTER                 :: ex_env
+      TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
+         POINTER                                         :: gs_mos
+      TYPE(dft_control_type), POINTER                    :: dft_control
+
+      ! matrices and structs
+      TYPE(cp_fm_type), POINTER                          :: gx_ao_act, gx_ao_inact
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER, &
+         intent(in)                                      :: matrix_gx
+      TYPE(cp_fm_type), POINTER, dimension(:), &
+                                 intent(inout)           :: cp_mos_active
+      ! integers and reals
+      INTEGER                                            :: n_active, n_inactive, ispin, nspins, nao, handle 
+      REAL(KIND=dp)                                      :: focc = 2.0_dp
+
+      ! logicals
+      logical                                            :: debug_forces = .False.
+
+      CALL timeset(routineN, handle)
+
+      call get_qs_env(qs_env=qs_env , dft_control=dft_control)
+      nspins   = dft_control%nspins
+      call cp_fm_get_info(gs_mos(1)%mos_occ, nrow_global=nao) 
+      if (nspins == 2) focc = 1.0_dp
+
+      do ispin = 1, nspins
+
+         !cp_mos_active(ispin) => ex_env%cp_mos_active(ispin)
+
+         n_active          = gs_mos(ispin)%nmo_active
+         n_inactive        = gs_mos(ispin)%nmo_inactive
+
+         nullify(gx_ao_act, gx_ao_inact)
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!! g_xc contribution to R_tilde !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+         ! this one just calculates the Dx Dx gxc conrtibution, contracted with active and inactive orbitals and adds it to R_tilde (mo_inact x mo_act). 
+         ! this can only contribute if g_iI /= g_Ii. usually this should not contribute!
+
+
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! +gxc_Ii !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+         call cp_fm_create(matrix         = gx_ao_act, &             !ao x mo_act
+                           matrix_struct  = gs_mos(ispin)%mos_active%matrix_struct)
+
+
+         ! also we need to add gIi and subtract giI so . this should usually cancel but i would rather have it and deactivate it, then miss it 
+         CALL cp_dbcsr_sm_fm_multiply( matrix   = matrix_gx(ispin)%matrix, & !ao x ao
+                                       fm_in    = gs_mos(ispin)%mos_active,& !ao x mo_act
+                                       fm_out   = gx_ao_act,               & !ao x mo_act double check if this is the correct variable
+                                       ncol     = n_active,                &
+                                       alpha    = focc,                    &
+                                       beta     = 0.0_dp)
+
+         call parallel_gemm(  transa   = "T",                        &
+                              transb   = "N",                        &
+                              m        = n_inactive ,                &
+                              n        = n_active,                   &
+                              k        = nao  ,                      & !is k always the dim we kick out? yes!
+                              alpha    = 1.0_dp,                     & 
+                              matrix_a = gs_mos(ispin)%mos_inactive, & !ao x mo_inact -T> mo_inact x ao
+                              matrix_b = gx_ao_act,                  & !ao x mo_act  
+                              beta     = 1.0_dp,                     & 
+                              matrix_c = cp_mos_active(ispin))         ! this is inact x act and R_tilde is inact x act, yay !!
+
+
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! -gxc_iI^T !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+         call cp_fm_create(matrix         = gx_ao_inact,&            !ao x mo_inact
+                           matrix_struct  = gs_mos(ispin)%mos_inactive%matrix_struct)
+
+
+         ! gx_ao_inact = gxc x C_inact (ao x mo_inact)
+         CALL cp_dbcsr_sm_fm_multiply( matrix   = matrix_gx(ispin)%matrix,    & !ao x ao
+                                       fm_in    = gs_mos(ispin)%mos_inactive, & !ao x mo_inact
+                                       fm_out   = gx_ao_inact,                & !ao x mo_inact !R_tilde is mo_inact x mo_act!
+                                       ncol     = n_inactive,                 &
+                                       alpha    = focc,                       &
+                                       beta     = 0.0_dp)                       ! the matrix is created fresh so beta is 0
+         !R += gx_mui^T C_I
+         call parallel_gemm(  transa   = "T",                     &
+                              transb   = "N",                     &
+                              m        = n_inactive ,             &
+                              n        = n_active ,               &
+                              k        = nao  ,                   & ! is k always the dim we kick out? yes!
+                              alpha    = -1.0_dp,                  & 
+                              matrix_a = gx_ao_inact,             & !ao x mo_inact -T> mo_inact x ao
+                              matrix_b = gs_mos(ispin)%mos_active,& !ao x mo_act 
+                              beta     = 1.0_dp,                  & !beta = 1 makes it add the result to matrix_c  
+                              matrix_c = cp_mos_active(ispin) )     !mo_inact x mo_act      
+         call cp_fm_release(gx_ao_inact)
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!! END g_xc contribution to R_tilde !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+         call cp_fm_release(gx_ao_act)
+
+      end do 
+            
+      
+
+      CALL timestop(handle)
+   end SUBROUTINE resp_gxc_res  
+
+
+! **************************************************************************************************
+!> \brief Calculates the g_xc contributions to w_bar multipliers and adds them to Lambda. 
+!> \brief That includes the active-active, active-inactive and inactive-inactive contributions with D^x D^x gIj, gIJ and gij
+!> \param qs_env ...
+!> \param ex_env Lambda is in matrix_wx1 
+!> \param gs_mos ...
+!> \param debug_forces default .False. , pass .True. for debugging. Currently does nothing
+! **************************************************************************************************
+   SUBROUTINE add_gxc_to_lambda_res(qs_env, gs_mos, matrix_gx, matrix_wx1)
+      
+      ! name and envs 
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'add_gxc_to_lambda_res'
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
+         POINTER                                         :: gs_mos
+      TYPE(dft_control_type), POINTER                    :: dft_control
+
+      ! matrices and structs
+      TYPE(cp_fm_type), POINTER                          :: work_ao_act, work_act_act, work_ao_inact, work_inact_act, work_inact_inact, g_xc_act
+      TYPE(cp_fm_struct_type), POINTER                   :: work_ao_act_struct, work_act_act_struct,&
+                                                            work_inact_act_struct, work_inact_inact_struct
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER, &
+         intent(in)                                      :: matrix_gx
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER, &
+         intent(inout)                                   :: matrix_wx1
+      
+      ! integers and reals
+      INTEGER                                            :: n_active, n_inactive, ispin, nspins, nao, handle 
+      real(kind=dp)                                      :: focc=2.0_dp
+
+      ! logicals
+      logical                                            :: debug_forces = .False.
+
+
+      CALL timeset(routineN, handle)
+
+      call get_qs_env(qs_env=qs_env , dft_control=dft_control)
+      nspins   = dft_control%nspins
+      call cp_fm_get_info(gs_mos(1)%mos_occ, nrow_global=nao) 
+      if (nspins == 2) focc = 1.0_dp
+
+      do ispin = 1, nspins
+         n_active         = gs_mos(ispin)%nmo_active
+         n_inactive       = gs_mos(ispin)%nmo_inactive
+
+
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!! allocate work matrices !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+         ! the work matrix for dim: ao x nact
+         nullify(work_act_act, work_ao_act)
+
+         call cp_fm_create(matrix         = work_ao_act, &
+                           matrix_struct  = gs_mos(ispin)%mos_active%matrix_struct )
+
+
+
+         ! the work matrix for dim: nact x nact
+         call cp_fm_struct_create(  fmstruct          = work_act_act_struct,                 &
+                                    template_fmstruct = gs_mos(ispin)%mos_inactive%matrix_struct, &
+                                    nrow_global       = n_active,                             &
+                                    ncol_global       = n_active)
+
+         call cp_fm_create(matrix         = work_act_act, &
+                           matrix_struct  = work_act_act_struct)
+                           
+         call cp_fm_struct_release(work_act_act_struct)
+
+
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!  Active-Active contribution to Lambda !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+         ! g*Ca
+         CALL cp_dbcsr_sm_fm_multiply( matrix   = matrix_gx(ispin)%matrix,    & !ao x ao
+                                       fm_in    = gs_mos(ispin)%mos_active,   & !ao x mo_act
+                                       fm_out   = work_ao_act,                & !ao x mo_act
+                                       ncol     = n_active,                   &
+                                       alpha    = focc,                     & !all these may have to be focc
+                                       beta     = 0.0_dp)
+         ! Ca^T*g*Ca
+         CALL parallel_gemm(  transa   = "T",                        &
+                              transb   = "N",                        & 
+                              m        = n_active,                   &
+                              n        = n_active,                   &
+                              k        = nao,                        &
+                              alpha    = 1.0_dp,                     &
+                              matrix_a = gs_mos(ispin)%mos_active,   & !ao x mo -T> mo_act x ao
+                              matrix_b = work_ao_act,                & !ao x mo_act 
+                              beta     = 0.0_dp,                     &
+                              matrix_c = work_act_act)                 !mo_act x mo_act
+
+         ! Ca*Ca^T*g*Ca
+         CALL parallel_gemm(  transa   = "N",                        &
+                              transb   = "N",                        &
+                              m        = nao,                        &
+                              n        = n_active,                    &
+                              k        = n_active,                    &
+                              alpha    = 1.0_dp,                     &
+                              matrix_a = gs_mos(ispin)%mos_active,   & !ao x mo_act
+                              matrix_b = work_act_act,               & !mo_act x mo_act
+                              beta     = 0.0_dp,                     &
+                              matrix_c = work_ao_act)                  !ao x mo_act
+         ! Ca*Ca^T*g*Ca*Ca^T
+         CALL cp_dbcsr_plus_fm_fm_t(   sparse_matrix  = matrix_wx1(ispin)%matrix, & ! the contribution is aready added to lambda
+                                       matrix_v       = work_ao_act,              & ! ao x mo_act
+                                       matrix_g       = gs_mos(ispin)%mos_active, & ! ao x mo_act -T> mo_act x ao so v x g^T -> ao x ao !!
+                                       ncol           = n_active,                  &
+                                       alpha          = 1.0_dp,                   &
+                                       symmetry_mode  = 1)
+
+         !call cp_fm_release(work_ao_act)
+         call cp_fm_release(work_act_act)
+
+
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!! and now the inactive-active contribution to Lambda !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+         ! i need the result to be act x occ and then contract again to ao x ao
+         ! usually Lambda is symetric ao x ao. but if g_xc is not symmetric then 
+         ! this contribution right here breaks the symmetry unless the active-inactive are also added?
+         
+         ! the work matrix for dim: ao x nocc
+
+         !call cp_fm_create(matrix         = work_ao_act,& ! we still have this from before
+         !                  matrix_struct  = gs_mos(ispin)%mos_active%matrix_struct) !ao x act
+
+         call cp_fm_create(matrix         = g_xc_act,& 
+                           matrix_struct  = gs_mos(ispin)%mos_active%matrix_struct) !ao x act
+
+
+         ! the work matrix for dim: ninact x nact
+         call cp_fm_struct_create(  fmstruct          = work_inact_act_struct,                 &
+                                    template_fmstruct = gs_mos(ispin)%mos_inactive%matrix_struct, &
+                                    nrow_global       = n_inactive,                             &
+                                    ncol_global       = n_active)
+
+         call cp_fm_create(matrix         = work_inact_act, &
+                           matrix_struct  = work_inact_act_struct)
+                           
+         call cp_fm_struct_release(work_inact_act_struct)
+
+
+         ! Add contributions to the \Lambda_munu for the perturbed overlap matrix t erm, third term of Eq. 51
+         ! g*Ca
+         CALL cp_dbcsr_sm_fm_multiply( matrix   = matrix_gx(ispin)%matrix,    & !ao x ao
+                                       fm_in    = gs_mos(ispin)%mos_active,   & !ao x mo_act
+                                       fm_out   = g_xc_act,                   & !ao x mo_inact we call this gxc_inact because we reuse it in the occ-occ block!
+                                       ncol     = n_active,                   &
+                                       alpha    = focc,                     &
+                                       beta     = 0.0_dp)
+         ! Ca^T*g*Ca
+         CALL parallel_gemm(  transa   = "T",                        &
+                              transb   = "N",                        & 
+                              m        = n_inactive,                 &
+                              n        = n_active,                   &
+                              k        = nao,                        &
+                              alpha    = 1.0_dp,                     &
+                              matrix_a = gs_mos(ispin)%mos_inactive, & !ao x mo_inact -T> mo_inact x ao
+                              matrix_b = g_xc_act,                   & !ao x mo_act 
+                              beta     = 0.0_dp,                     &
+                              matrix_c = work_inact_act)               !mo_inact x mo_act
+
+         ! Ca*Ca^T*g*Ca
+         CALL parallel_gemm(  transa   = "N",                        &
+                              transb   = "N",                        &
+                              m        = nao,                        &
+                              n        = n_active,                   &
+                              k        = n_inactive,                 &
+                              alpha    = 1.0_dp,                     &
+                              matrix_a = gs_mos(ispin)%mos_inactive, & !ao x inmo_act
+                              matrix_b = work_inact_act,             & !mo_inact x mo_act
+                              beta     = 0.0_dp,                     &
+                              matrix_c = work_ao_act)                  !ao x mo_act
+         
+         
+         ! Ca*Ca^T*g*Ca*Ca^T
+         CALL cp_dbcsr_plus_fm_fm_t(   sparse_matrix  = matrix_wx1(ispin)%matrix,   & ! ao x ao
+                                       matrix_v       = work_ao_act,                & ! ao x mo_act
+                                       matrix_g       = gs_mos(ispin)%mos_active,   & ! ao x mo_act -T> mo_act x ao so v x g^T -> ao x ao A 
+                                       ncol           = n_active,                   &
+                                       alpha          = 1.0_dp,                     &
+                                       symmetry_mode  = 1)
+
+         call cp_fm_release(g_xc_act) 
+         call cp_fm_release(work_inact_act)
+
+
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!  Inactive-Inactive contribution to Lambda !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+         ! the work matrix for dim: ninact x ninact
+         call cp_fm_struct_create(  fmstruct          = work_inact_inact_struct,                   &
+                                    template_fmstruct = gs_mos(ispin)%mos_inactive%matrix_struct,  &
+                                    ncol_global       = n_inactive,                                &
+                                    nrow_global       = n_inactive)
+
+         call cp_fm_create(matrix         = work_inact_inact,          &
+                           matrix_struct  = work_inact_inact_struct)
+
+
+         call cp_fm_struct_release(work_inact_inact_struct)
+
+         call cp_fm_create(matrix         = work_ao_inact,          &
+                           matrix_struct  = gs_mos(ispin)%mos_inactive%matrix_struct)
+
+
+
+         ! g*Ca 
+         CALL cp_dbcsr_sm_fm_multiply( matrix   = matrix_gx(ispin)%matrix,    & !ao x ao
+                                       fm_in    = gs_mos(ispin)%mos_inactive,    & !ao x mo_inact
+                                       fm_out   = work_ao_inact,              & !ao x mo_inact
+                                       ncol     = n_inactive,                 &
+                                       alpha    = focc,                     &
+                                       beta     = 0.0_dp)
+
+         ! Ca^T*g*Ca
+         CALL parallel_gemm(  transa   = "T",                        &
+                              transb   = "N",                        & 
+                              m        = n_inactive,                 &
+                              n        = n_inactive,                 &
+                              k        = nao,                        &
+                              alpha    = 1.0_dp,                     &
+                              matrix_a = gs_mos(ispin)%mos_inactive, & !ao x mo_inact -T> mo_inact x ao
+                              matrix_b = work_ao_inact,                 & !ao x mo_inact this is exactly the same contraction as before!
+                              beta     = 0.0_dp,                     &
+                              matrix_c = work_inact_inact)                 !mo_inact x mo_inact
+
+         ! Ca*Ca^T*g*Ca
+         CALL parallel_gemm(  transa   = "N",                        &
+                              transb   = "N",                        &
+                              m        = nao,                        &
+                              n        = n_inactive,                 &
+                              k        = n_inactive,                 &
+                              alpha    = 1.0_dp,                     &
+                              matrix_a = gs_mos(ispin)%mos_inactive, & !ao x mo_inact
+                              matrix_b = work_inact_inact,           & !mo_inact x mo_inact
+                              beta     = 0.0_dp,                     &
+                              matrix_c = work_ao_inact)                !ao x mo_inact
+         ! Ca*Ca^T*g*Ca*Ca^T
+         CALL cp_dbcsr_plus_fm_fm_t(   sparse_matrix  = matrix_wx1(ispin)%matrix,   & ! the contribution is aready added to lambda
+                                       matrix_v       = work_ao_inact,              & ! ao x mo_inact
+                                       matrix_g       = gs_mos(ispin)%mos_inactive, & ! ao x mo_inact -T> mo_inact x ao so v x g^T -> ao x ao !!
+                                       ncol           = n_inactive,                 &
+                                       alpha          = 1.0_dp,                     &
+                                       symmetry_mode  = 1)
+      
+         call cp_fm_release(work_ao_inact)
+         call cp_fm_release(work_ao_act)
+         call cp_fm_release(work_inact_inact)
+      end do
+      CALL timestop(handle)
+   end SUBROUTINE add_gxc_to_lambda_res  
 
 END MODULE qs_tddfpt2_fhxc_forces

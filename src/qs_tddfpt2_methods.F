@@ -1883,14 +1883,14 @@ CONTAINS
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'init_res_method'
 
       INTEGER                                            :: handle, i, io, ispin, nao, nmo, nmol, &
-                                                            nspins
+                                                            nspins, n_inactive, i_active, i_inactive
       INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: orblist
       INTEGER, DIMENSION(:), POINTER                     :: mollist
       LOGICAL                                            :: do_res, do_sf, ew1, ew2, ew3, ewcut, lms
       REAL(KIND=dp)                                      :: eclow, ecup, eint, emo
       REAL(KIND=dp), DIMENSION(:), POINTER               :: rvint
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
-      TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
+      TYPE(cp_fm_struct_type), POINTER                   :: fm_struct, fm_struct_inact
       TYPE(section_vals_type), POINTER                   :: res_section
 
       CALL timeset(routineN, handle)
@@ -1912,13 +1912,20 @@ CONTAINS
       nspins = SIZE(gs_mos)
       IF (.NOT. do_res) THEN
          DO ispin = 1, nspins
-            nmo = gs_mos(ispin)%nmo_occ
+
+            nmo                           = gs_mos(ispin)%nmo_occ
             tddfpt_control%nactive(ispin) = nmo
-            gs_mos(ispin)%nmo_active = nmo
+            gs_mos(ispin)%nmo_active      = nmo
+            gs_mos(ispin)%nmo_inactive    = 0
+
             ALLOCATE (gs_mos(ispin)%index_active(nmo))
+            ALLOCATE (gs_mos(ispin)%index_inactive(1))
+
             DO i = 1, nmo
                gs_mos(ispin)%index_active(i) = i
             END DO
+            gs_mos(ispin)%index_inactive(1) = 0
+
          END DO
       ELSE
          IF (iounit > 0) THEN
@@ -1971,6 +1978,7 @@ CONTAINS
 
          IF (lms) THEN
             ! ignore for now
+            !so this is just not implemented? ...
             orblist = 1
             DO ispin = 1, nspins
                CPASSERT(.NOT. ASSOCIATED(gs_mos(ispin)%evals_occ_matrix))
@@ -1993,16 +2001,29 @@ CONTAINS
             CPABORT("RSE TDA: no active orbitals selected.")
          END IF
          DO ispin = 1, nspins
-            nmo = SUM(orblist(:, ispin))
+
+            nmo                           = SUM(orblist(:, ispin))
             tddfpt_control%nactive(ispin) = nmo
-            gs_mos(ispin)%nmo_active = nmo
+            gs_mos(ispin)%nmo_active      = nmo
+
+            n_inactive                    = gs_mos(ispin)%nmo_occ - nmo
+            gs_mos(ispin)%nmo_inactive    = n_inactive
+
             ALLOCATE (gs_mos(ispin)%index_active(nmo))
-            io = 0
-            DO i = 1, SIZE(ORBLIST, 1)
+            ALLOCATE (gs_mos(ispin)%index_inactive(n_inactive))          
+
+            i_active    = 0
+            i_inactive  = 0
+            DO i = 1, gs_mos(ispin)%nmo_occ ! this contains only the active orbitals so the new loop must go over all mos
                IF (orblist(i, ispin) == 1) THEN
-                  io = io + 1
-                  gs_mos(ispin)%index_active(io) = i
+                  i_active = i_active +1 
+
+                  gs_mos(ispin)%index_active(i_active)   = i
+               else ! if the orbital is not active it must be inactive
+                  i_inactive = i_inactive +1 
+                  gs_mos(ispin)%index_inactive(i_inactive) = i
                END IF
+
             END DO
          END DO
          DEALLOCATE (orblist)
@@ -2028,6 +2049,12 @@ CONTAINS
                      END DO
                   END DO
                END IF
+
+               WRITE (iounit, "(A)") 'Number of states that are inactive:'
+               do ispin = 1, nspins
+                  WRITE (iounit, "(1X,A,I2,A,I6)") "Spin: ", ispin, "Number inactive: ", gs_mos(ispin)%nmo_inactive
+               end do 
+
             END IF
          END IF
 
@@ -2040,18 +2067,32 @@ CONTAINS
          END IF
       END IF
 
-      ! Allocate mos_active
+      ! Allocate mos_active and mos_inactive
       DO ispin = 1, nspins
          CALL get_qs_env(qs_env, blacs_env=blacs_env)
          CALL cp_fm_get_info(gs_mos(ispin)%mos_occ, nrow_global=nao)
-         nmo = gs_mos(ispin)%nmo_active
+         nmo         = gs_mos(ispin)%nmo_active
+         n_inactive  = gs_mos(ispin)%nmo_inactive
          CALL cp_fm_struct_create(fm_struct, template_fmstruct=gs_mos(ispin)%mos_occ%matrix_struct, &
                                   ncol_global=nmo, context=blacs_env)
+
+         CALL cp_fm_struct_create(fm_struct_inact, template_fmstruct=gs_mos(ispin)%mos_occ%matrix_struct, &
+                                  ncol_global=n_inactive, context=blacs_env)
+
          NULLIFY (gs_mos(ispin)%mos_active)
          ALLOCATE (gs_mos(ispin)%mos_active)
+
+         NULLIFY (gs_mos(ispin)%mos_inactive)
+         ALLOCATE (gs_mos(ispin)%mos_inactive)
+
          CALL cp_fm_create(gs_mos(ispin)%mos_active, fm_struct)
+
+         CALL cp_fm_create(gs_mos(ispin)%mos_inactive, fm_struct_inact)
+
          CALL cp_fm_struct_release(fm_struct)
-         ! copy the active orbitals
+         CALL cp_fm_struct_release(fm_struct_inact)
+
+         ! copy the active and inactive orbitals
          IF (gs_mos(ispin)%nmo_active == gs_mos(ispin)%nmo_occ) THEN
             DO i = 1, gs_mos(ispin)%nmo_active
                CPASSERT(i == gs_mos(ispin)%index_active(i))
@@ -2064,6 +2105,14 @@ CONTAINS
                CALL cp_fm_to_fm_submat(gs_mos(ispin)%mos_occ, gs_mos(ispin)%mos_active, &
                                        nao, 1, 1, io, 1, i)
             END DO
+            !copy the inactive orbitals
+            DO i = 1, gs_mos(ispin)%nmo_inactive
+               io = gs_mos(ispin)%index_inactive(i)
+               CALL cp_fm_to_fm_submat(gs_mos(ispin)%mos_occ, gs_mos(ispin)%mos_inactive, &
+                                       nao, 1, 1, io, 1, i)
+            END DO
+
+
          END IF
       END DO
 

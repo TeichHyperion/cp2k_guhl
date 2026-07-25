@@ -659,7 +659,7 @@ CONTAINS
       ! Calculate Wz = 0.5*(psi1*eps*psi0^T + psi0*eps*psi1^T)
       DO ispin = 1, nspins
          CALL calculate_wz_matrix(mos(ispin), psi1(ispin), matrix_ks(ispin)%matrix, &
-                                  p_env%w1(ispin)%matrix)
+                                  p_env%w1(ispin)%matrix) !! also here 
       END DO
       DO ispin = 1, nspins
          CALL cp_fm_release(cpmos(ispin))
@@ -986,7 +986,7 @@ CONTAINS
          CALL dbcsr_allocate_matrix_set(mpa, nspins)
          DO ispin = 1, nspins
             ALLOCATE (mpa(ispin)%matrix)
-            CALL dbcsr_create(mpa(ispin)%matrix, template=p_env%p1(ispin)%matrix)
+            CALL dbcsr_create(mpa(ispin)%matrix, template=p_env%p1(ispin)%matrix) !Here!! ! add contribution to P1
             CALL dbcsr_copy(mpa(ispin)%matrix, p_env%p1(ispin)%matrix)
             CALL dbcsr_add(mpa(ispin)%matrix, ex_env%matrix_pe(ispin)%matrix, 1.0_dp, 1.0_dp)
             CALL dbcsr_set(matrix_hz(ispin)%matrix, 0.0_dp)
@@ -2537,7 +2537,7 @@ CONTAINS
       IF (dft_control%qs_control%do_ls_scf) THEN
          ! Ground-state density has been calculated by LS
          eps_filter = dft_control%qs_control%eps_filter_matrix
-         CALL calculate_whz_ao_matrix(qs_env, matrix_hz, matrix_wz, eps_filter)
+         CALL calculate_whz_ao_matrix(qs_env, matrix_hz, matrix_wz, eps_filter) ! here too all three cont
       ELSE
          IF (do_ex) THEN
             matrix_wz => p_env%w1
