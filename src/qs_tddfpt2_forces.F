@@ -898,9 +898,10 @@ CONTAINS
       TYPE(cp_fm_type), POINTER                          :: K_act_act, K_occ_occ
       TYPE(cp_fm_struct_type) , POINTER                  :: fm_struct_act_act, fm_struct_occ_occ
       TYPE(cp_fm_type), dimension(:),optional,intent(in) :: evect
-      TYPE(cp_fm_type), pointer                          :: h_ao_inact, h_ao_act
+      TYPE(cp_fm_type), pointer                          :: h_ao_inact, h_ao_act, fm_work_nao_nact
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: R_global
-      INTEGER                                            :: i_act, i_inact, active_orbs, index_inactive, index_active
+      INTEGER                                            :: i_act, i_inact, active_orbs, index_inactive, &
+                                                            index_active, n_active, n_inactive
       REAL(KIND=dp)                                      :: e_diff, e_inactive, e_active
       logical                                            :: has_degeneracy = .False.
       CALL timeset(routineN, handle)
@@ -1646,7 +1647,7 @@ CONTAINS
          CALL cp_fm_set_submatrix(cp_mos_active(ispin), R_global)
          deallocate(R_global)
          if ( has_degeneracy ) then
-            call cp_warn("near degeneracy or degeneracy detected between occ and act orbitals")
+            call cp_warn(__LOCATION__, "near degeneracy or degeneracy detected between occ and act orbitals")
          end if
          end do 
       end if
