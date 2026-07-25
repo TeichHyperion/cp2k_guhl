@@ -1441,8 +1441,8 @@ CONTAINS
             
             if (do_res) then 
             ! XC g (third functional derivative) contributions
-
-               call resp_gxc_res(qs_env, ex_env, gs_mos, cp_mos_active, matrix_gx)
+               
+               call resp_gxc_res(qs_env, ex_env, gs_mos, ex_env%cp_mos_active, matrix_gx)
                call add_gxc_to_lambda_res(qs_env, gs_mos, matrix_gx, matrix_wx1)
             else
                CALL cp_dbcsr_sm_fm_multiply(matrix_gx(ispin)%matrix, gs_mos(ispin)%mos_occ, &
