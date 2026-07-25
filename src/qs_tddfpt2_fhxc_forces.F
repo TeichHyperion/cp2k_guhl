@@ -1442,7 +1442,7 @@ CONTAINS
             if (do_res) then 
             ! XC g (third functional derivative) contributions
                
-               call resp_gxc_res(qs_env, ex_env, gs_mos, ex_env%cp_mos_active, matrix_gx)
+               call resp_gxc_res(qs_env, gs_mos, ex_env%cp_mos_active, matrix_gx)
                call add_gxc_to_lambda_res(qs_env, gs_mos, matrix_gx, matrix_wx1)
             else
                CALL cp_dbcsr_sm_fm_multiply(matrix_gx(ispin)%matrix, gs_mos(ispin)%mos_occ, &
@@ -2047,7 +2047,7 @@ CONTAINS
 !> \param gs_mos ...
 !> \param debug_forces default .False. , pass .True. for debugging. Currently does nothing
 ! **************************************************************************************************
-   SUBROUTINE resp_gxc_res(qs_env, ex_env, gs_mos, cp_mos_active, matrix_gx)
+   SUBROUTINE resp_gxc_res(qs_env, gs_mos, cp_mos_active, matrix_gx)
       
       ! name and envs 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'resp_gxc_res'
@@ -2068,7 +2068,7 @@ CONTAINS
       REAL(KIND=dp)                                      :: focc = 2.0_dp
 
       ! logicals
-      logical                                            :: debug_forces = .False.
+      !logical                                            :: debug_forces = .False.
 
       CALL timeset(routineN, handle)
 
@@ -2172,7 +2172,7 @@ CONTAINS
       ! matrices and structs
       TYPE(cp_fm_type), POINTER                          :: work_ao_act, work_act_act, work_ao_inact,&
                                                              work_inact_act, work_inact_inact, g_xc_act
-      TYPE(cp_fm_struct_type), POINTER                   :: work_ao_act_struct, work_act_act_struct,&
+      TYPE(cp_fm_struct_type), POINTER                   ::  work_act_act_struct,&
                                                             work_inact_act_struct, work_inact_inact_struct
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER, &
          intent(in)                                      :: matrix_gx
@@ -2184,7 +2184,7 @@ CONTAINS
       real(kind=dp)                                      :: focc=2.0_dp
 
       ! logicals
-      logical                                            :: debug_forces = .False.
+      !logical                                            :: debug_forces = .False.
 
 
       CALL timeset(routineN, handle)
