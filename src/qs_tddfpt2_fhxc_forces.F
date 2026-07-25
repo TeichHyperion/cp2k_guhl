@@ -2052,7 +2052,6 @@ CONTAINS
       ! name and envs 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'resp_gxc_res'
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(excited_energy_type), POINTER                 :: ex_env
       TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
          POINTER                                         :: gs_mos
       TYPE(dft_control_type), POINTER                    :: dft_control
