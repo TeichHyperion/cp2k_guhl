@@ -177,7 +177,7 @@ CONTAINS
       CHARACTER(LEN=*), PARAMETER :: routineN = 'tddfpt_forces_main'
 
       INTEGER                                            :: handle, ispin, nspins, spin, n_active, n_occ, io_unit ,&
-                                                            nrow_global_debug, ncol_global_debug, n_act_td, n_inact, &
+                                                            nrow_global_debug, ncol_global_debug, n_act_td, &
                                                             n_inactive
       TYPE(cp_logger_type), POINTER                      :: logger
 
@@ -844,7 +844,7 @@ CONTAINS
       TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
          POINTER                                         :: gs_mos
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_hz
-      TYPE(cp_fm_type), dimension(:), POINTER            :: martix_hz_test
+      !TYPE(cp_fm_type), dimension(:), POINTER            :: martix_hz_test
       TYPE(cp_fm_type), DIMENSION(:), INTENT(INOUT)      :: cpmos
       TYPE(cp_fm_type), DIMENSION(:), INTENT(INOUT), &
       OPTIONAL                                           :: cp_mos_active
@@ -895,13 +895,13 @@ CONTAINS
                                                             xc_section
       TYPE(task_list_type), POINTER                      :: task_list
       TYPE(xc_rho_cflags_type)                           :: needs
-      INTEGER                                            :: n_act, n_occ, i, nrow, ncol
+      INTEGER                                            :: n_act, n_occ
       TYPE(cp_fm_type), POINTER                          :: K_act_act, K_occ_occ
       TYPE(cp_fm_struct_type) , POINTER                  :: fm_struct_act_act, fm_struct_occ_occ
       TYPE(cp_fm_type), dimension(:),optional,intent(in) :: evect
       TYPE(cp_fm_type), pointer                          :: h_ao_inact, h_ao_act, fm_work_nao_nact
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: R_global
-      INTEGER                                            :: i_act, i_inact, active_orbs, index_inactive, &
+      INTEGER                                            :: i_act, i_inact, index_inactive, &
                                                             index_active, n_active, n_inactive
       REAL(KIND=dp)                                      :: e_diff, e_inactive, e_active
       logical                                            :: has_degeneracy = .False.
