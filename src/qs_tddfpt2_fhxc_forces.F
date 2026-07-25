@@ -1380,7 +1380,6 @@ CONTAINS
          CALL cp_fm_create(cpscr, gs_mos(ispin)%mos_active%matrix_struct, "cpscr", set_zero=.TRUE.)
          !
          CALL cp_fm_get_info(gs_mos(ispin)%mos_occ, matrix_struct=fm_struct, nrow_global=nao)
-         call cp_fm_struct_create(w_bar_struct, template = gs_mos%mos_occ%matrix_struct, nrow_global = nao, ncol_global = norb(ispin))
          !
          CALL cp_fm_create(avamat, fm_struct, nrow=nactive(spin), ncol=nactive(spin))
          CALL cp_fm_create(avcmat, fm_struct, nrow=nactive(spin), ncol=norb(spin))
@@ -1388,7 +1387,6 @@ CONTAINS
          !
          CALL cp_fm_create(vcvec, gs_mos(ispin)%mos_occ%matrix_struct, "vcvec")
          CALL cp_fm_create(vavec, gs_mos(ispin)%mos_active%matrix_struct, "vavec") ! ao x mo_act
-         call cp_fm_create(w_bar, w_bar_struct, "w_bar")    !mo_occ x mo_occ
 
          ! Allocate and initialize the Lambda matrix
          ALLOCATE (matrix_wx1(ispin)%matrix)
@@ -2172,7 +2170,8 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
 
       ! matrices and structs
-      TYPE(cp_fm_type), POINTER                          :: work_ao_act, work_act_act, work_ao_inact, work_inact_act, work_inact_inact, g_xc_act
+      TYPE(cp_fm_type), POINTER                          :: work_ao_act, work_act_act, work_ao_inact,&
+                                                             work_inact_act, work_inact_inact, g_xc_act
       TYPE(cp_fm_struct_type), POINTER                   :: work_ao_act_struct, work_act_act_struct,&
                                                             work_inact_act_struct, work_inact_inact_struct
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER, &
