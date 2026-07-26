@@ -1055,6 +1055,8 @@ CONTAINS
       END IF
 
       ! HFX
+      
+      
       IF (do_hfx) THEN
          NULLIFY (matrix_hfx, matrix_hfx_asymm)
          CALL dbcsr_allocate_matrix_set(matrix_hfx, nsev)
@@ -1438,13 +1440,6 @@ CONTAINS
                CALL cp_dbcsr_plus_fm_fm_t(matrix_wx1(ispin)%matrix, matrix_v=vcvec, matrix_g=gs_mos(ispin)%mos_occ, &
                                           ncol=norb(ispin), alpha=2.0_dp, symmetry_mode=1)
             END IF
-            
-            if (do_res) then 
-            ! XC g (third functional derivative) contributions
-               
-               call resp_gxc_res(qs_env, gs_mos, ex_env%cp_mos_active, matrix_gx)
-               call add_gxc_to_lambda_res(qs_env, gs_mos, matrix_gx, matrix_wx1)
-            else
                CALL cp_dbcsr_sm_fm_multiply(matrix_gx(ispin)%matrix, gs_mos(ispin)%mos_occ, &
                                           cpmos(ispin), norb(ispin), alpha=focc, beta=1.0_dp)
                ! Add contributions to the \Lambda_munu for the perturbed overlap matrix term, third term of Eq. 51
@@ -1458,9 +1453,9 @@ CONTAINS
                ! Ca*Ca^T*g*Ca*Ca^T
                CALL cp_dbcsr_plus_fm_fm_t(matrix_wx1(ispin)%matrix, matrix_v=vcvec, matrix_g=gs_mos(ispin)%mos_occ, &
                                           ncol=norb(ispin), alpha=1.0_dp, symmetry_mode=1)
-            end if
 
          END IF
+
          ! Add Fock contributions to the response vector
          IF (do_hfx) THEN
             ! For spin-flip excitations this is the only contribution to the alpha response vector
@@ -1497,6 +1492,33 @@ CONTAINS
             END IF
          END IF
          !
+
+         if (do_res) then 
+      
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!! RES !!!!!!!!!!!!!!!!!!!!!!!!!!
+            ! Kernel contributions to R_Ii
+
+            call add_kernel_contributions_res(  qs_env            = qs_env,               &
+                                                gs_mos            = gs_mos,               &
+                                                ispin             = ispin,                &
+                                                cp_mos_active     = ex_env%cp_mos_active(ispin), & 
+                                                evect             = evect(ispin),         &
+                                                matrix_hx         = matrix_hx(ispin),     & 
+                                                matrix_fx         = matrix_fx(ispin),     &
+                                                matrix_hfx        = matrix_hfx(ispin),    & 
+                                                matrix_hfx_asymm  = matrix_hfx_asymm(ispin))
+
+            ! XC g (third functional derivative) contributions
+               
+               call resp_gxc_res(qs_env, gs_mos, ex_env%cp_mos_active, matrix_gx)
+               call add_gxc_to_lambda_res(qs_env, gs_mos, matrix_gx, matrix_wx1)
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!! END RES !!!!!!!!!!!!!!!!!!!!!!!!!!
+
+         end if
+
+
+
+
          IF (do_res) THEN ! not by me, i didn't do this
             DO ia = 1, nactive(ispin)
                ib = gs_mos(ispin)%index_active(ia)
@@ -1505,6 +1527,8 @@ CONTAINS
          ELSE
             CALL cp_fm_geadd(1.0_dp, "N", cpscr, 1.0_dp, cpmos(ispin))
          END IF
+
+
          !
          CALL cp_fm_release(cpscr)
          CALL cp_fm_release(avamat)
@@ -2150,6 +2174,297 @@ CONTAINS
       CALL timestop(handle)
    end SUBROUTINE resp_gxc_res  
 
+   
+
+! **************************************************************************************************
+!> \brief Calculates the different Kernel contributions to the Response Vector R_Ii for Restricted excitation space cp_mos_active. 
+!> \brief Different contributions each [ao x ao] are matrix_hx (Hartree), matrix_hfx (Exact xc) and matrix_fx (xc)
+!> \brief each of these is originally a matrix set like matrix(ispin) 
+!> \param qs_env ...
+!> \param cp_mos_active response vector R_Ii   
+!> \param matrix_s(1)%matrix contains the overlap matrix 
+!> \param gs_mos ...
+!> \param debug_forces default .False. , pass .True. for debugging. Currently does nothing. unused variables not allowed currently so deactivated for now 
+! **************************************************************************************************
+   SUBROUTINE add_kernel_contributions_res(qs_env, gs_mos, ispin, cp_mos_active, evect, matrix_hx, matrix_fx, matrix_hfx, matrix_hfx_asymm)
+      !name and envs 
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'add_kernel_contributions_res'
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
+         POINTER                                         :: gs_mos
+      TYPE(dft_control_type), POINTER                    :: dft_control
+
+      ! matrices and structs
+      TYPE(cp_fm_type), POINTER                          :: work_ao_act, work_act_act, work_inact_act, &
+                                                            work_ao_inact, cp_mos_active, evect
+      TYPE(cp_fm_struct_type), POINTER                   :: work_act_act_struct, work_inact_act_struct
+      TYPE(dbcsr_p_type), POINTER, &
+         intent(in), optional                            :: matrix_hx, matrix_hfx, matrix_fx, matrix_hfx_asymm
+      TYPE(dbcsr_type)                                   :: matrix_k
+      TYPE(dbcsr_p_type), POINTER, dimension(:)          :: matrix_s
+
+      ! integers and reals
+      INTEGER                                            :: n_active, n_inactive, nspins, nao, handle 
+      INTEGER, intent(in)                                :: ispin
+      real(kind=dp)                                      :: focc = 2.0_dp
+
+      ! logicals
+      !logical                                            :: debug_forces = .False.
+
+      ! most efficient way to do this is prob to sum all three matrices and the calculate and add the contribution 
+      ! or have this routine be invariant to which contribution is added and add them immeadieately whenever one of the conributions is calculated
+      ! last one seems unneccessary because the contributions are all calculated one by one and then added all at once later. 
+      ! The way its currently done seems very inefficent. it keeps all matrices in memory for long and then does the contration seperately for each contribution?
+      CALL timeset(routineN, handle)
+
+      CALL get_qs_env(qs_env        = qs_env,      & 
+                      dft_control   = dft_control, & 
+                      matrix_s      = matrix_s)
+
+      n_active    = gs_mos(ispin)%nmo_active
+      n_inactive  = gs_mos(ispin)%nmo_inactive
+      call cp_fm_get_info(gs_mos(ispin)%mos_occ, ncol_global=nao)
+      nspins      = dft_control%nspins
+      IF (nspins == 2) focc = 1.0_dp
+
+      ! create matrix to hold total Kernel contribution
+
+      call dbcsr_create(matrix=matrix_k, name='matrix_k', template=matrix_s(1)%matrix)
+      call dbcsr_set(matrix=matrix_k, alpha=0.0_dp)
+
+      ! step one: Add the Hartree contribution
+      !IF (.NOT. (is_rks_triplets .OR. do_sf)) THEN
+      !   call dbcsr_add(matrix_a       = matrix_k, &
+      !                  matrix_b       = matrix_hx,&
+      !                  alpha_scalar   = 0.0_dp,   &
+      !                  beta_scalar    = 1.0_dp) 
+      !end if 
+
+      IF (PRESENT(matrix_hx)) THEN
+         IF (ASSOCIATED(matrix_hx))  then
+            call dbcsr_add(matrix_a       = matrix_k,          &
+                           matrix_b       = matrix_hx%matrix,  &
+                           alpha_scalar   = 1.0_dp,            &
+                           beta_scalar    = 1.0_dp) 
+         end if 
+      end if 
+
+      ! step two add exchange contribution
+      !IF ((myfun /= xc_none) .AND. (tddfpt_control%spinflip /= tddfpt_sf_col)) THEN
+      !   call dbcsr_add(matrix_a       = matrix_k, &
+      !                  matrix_b       = matrix_fx,&
+      !                  alpha_scalar   = 1.0_dp,   &
+      !                  beta_scalar    = 1.0_dp) 
+      !end if 
+      IF (PRESENT(matrix_fx)) THEN
+         IF (ASSOCIATED(matrix_fx))  then
+            call dbcsr_add(matrix_a       = matrix_k,          &
+                           matrix_b       = matrix_fx%matrix,  &
+                           alpha_scalar   = 1.0_dp,            &
+                           beta_scalar    = 1.0_dp) 
+         end if 
+      end if 
+
+
+      
+      ! step three add exact exchange contribution
+      ! todo: figure out how to treat the asymetric contibtuion correctly 
+      !IF (do_hfx) THEN
+      !   call dbcsr_add(matrix_a       = matrix_k, &
+      !                  matrix_b       = matrix_hfx, &
+      !                  alpha_scalar   = 1.0_dp, &
+      !                  beta_scalar    = 1.0_dp)
+      !   ! we need to transpose K, so the asymmetric part needs to be subtracted instead of added?
+      !   call dbcsr_add(matrix_a       = matrix_k, &
+      !                  matrix_b       = matrix_hfx_asymm,& 
+      !                  alpha_scalar   = 1.0_dp,&
+      !                  beta_scalar    = -1.0_dp) ! does this need a negative sign?
+      !end if 
+
+      IF (PRESENT(matrix_hfx)) THEN
+         IF (ASSOCIATED(matrix_hfx))  then
+            call dbcsr_add(matrix_a       = matrix_k,          &
+                           matrix_b       = matrix_hfx%matrix, &
+                           alpha_scalar   = 1.0_dp,            &
+                           beta_scalar    = 1.0_dp)
+            ! we need to transpose K, so the asymmetric part needs to be subtracted instead of added?
+            call dbcsr_add(matrix_a       = matrix_k,                &
+                           matrix_b       = matrix_hfx_asymm%matrix, & 
+                           alpha_scalar   = 1.0_dp,                  &
+                           beta_scalar    = -1.0_dp) ! does this need a negative sign?
+         end if 
+      end if 
+
+
+      ! matrix_k is now an !!!asymmetric!!! [ao x ao] matrix.
+      ! actually this is now not K but K^T, but thats what i need!
+
+
+
+      !1: now  2 * X_kappai^T K_kappaI[D^x] 
+
+      ! should be the above equation, according to the formulas but that gives the transposed dimensions
+
+      ! naive would be :
+      !contract K to K_kappaI
+      !CALL cp_dbcsr_sm_fm_multiply( matrix   = matrix_k,                      & !ao x ao
+      !                              fm_in    = gs_mos(ispin)%mos_inactive,    & !ao x mo_inact
+      !                              fm_out   = work_ao_inact,                 & !ao x mo_inact
+      !                              ncol     = n_inactive,                    &
+      !                              alpha    = focc,                          & !all these may have to be focc
+      !                              beta     = 0.0_dp)
+      !!multpy with X_mui^T and add to R
+      !call parallel_gemm(  transa   = "T",            &
+      !                     transb   = "N",            &
+      !                     m        = n_inactive,     &
+      !                     n        = n_active,       &
+      !                     k        = nao,            &
+      !                     alpha    = 1.0_dp,         &
+      !                     matrix_a = evect,          & ! ao x act -T> act x ao 
+      !                     matrix_b = work_ao_inact,  & ! ao x inact
+      !                     beta     = 1.0_dp,         &
+      !                     matrix_c = cp_mos_active)    ! act x inact  ! the wrong way around if done as in the equation. transpose and add
+
+
+      !instead do the contraction the other way around, should end up equivalent to the transpose?:
+      !1.1
+
+      call cp_fm_create(matrix         = work_ao_act, &
+                        matrix_struct  = gs_mos(ispin)%mos_active%matrix_struct )
+
+
+      CALL cp_dbcsr_sm_fm_multiply( matrix   = matrix_k,    & !ao x ao
+                                    fm_in    = evect,       & !ao x mo_act
+                                    fm_out   = work_ao_act, & !ao x mo_act
+                                    ncol     = n_active,    &
+                                    alpha    = 1.0_dp,      & 
+                                    beta     = 0.0_dp)
+
+
+      !1.2
+      !!multpy with X_mui^T and add to R
+      call parallel_gemm(  transa   = "T",                        &
+                           transb   = "N",                        &
+                           m        = n_inactive,                 &
+                           n        = n_active,                   &
+                           k        = nao,                        &
+                           alpha    = 2*focc,                     &
+                           matrix_a = gs_mos(ispin)%mos_inactive, & ! ao x inact -T> inact x ao 
+                           matrix_b = work_ao_act,                & ! ao x inact
+                           beta     = 1.0_dp,                     &
+                           matrix_c = cp_mos_active)                ! INact x act  ! the wrong way around if done as in the equation 
+       
+      !call cp_fm_release(work_ao_act) ! reused
+
+      !2:
+      ! now the term: X_kappak^T S_kappaI K_ik. Naivly first exactly as written in the equation
+      ! contract to K_ik
+      !2.1
+      CALL cp_dbcsr_sm_fm_multiply( matrix   = matrix_k,                   & !ao x ao
+                                    fm_in    = gs_mos(ispin)%mos_active,   & !ao x mo_act
+                                    fm_out   = work_ao_act,                & !ao x mo_act
+                                    ncol     = n_active,                   &
+                                    alpha    = 1.0_dp,                     & 
+                                    beta     = 0.0_dp)
+      call dbcsr_release(matrix_k)
+      !2.2
+      ! the work matrix for dim: nact x nact
+      call cp_fm_struct_create(  fmstruct          = work_act_act_struct,                       &
+                                 template_fmstruct = gs_mos(ispin)%mos_inactive%matrix_struct,  &
+                                 nrow_global       = n_active,                                  &
+                                 ncol_global       = n_active)
+
+      call cp_fm_create(matrix         = work_act_act, &
+                        matrix_struct  = work_act_act_struct)
+
+      call cp_fm_struct_release(work_act_act_struct)
+
+      ! the work matrix for dim: nact x nact
+      call cp_fm_struct_create(  fmstruct          = work_inact_act_struct,                     &
+                                 template_fmstruct = gs_mos(ispin)%mos_inactive%matrix_struct,  &
+                                 nrow_global       = n_inactive,                                &
+                                 ncol_global       = n_active)
+
+      call cp_fm_create(matrix         = work_inact_act, &
+                        matrix_struct  = work_inact_act_struct)
+
+      call cp_fm_struct_release(work_inact_act_struct)
+
+      call cp_fm_create(matrix         = work_ao_inact, &
+                        matrix_struct  = gs_mos(ispin)%mos_inactive%matrix_struct)
+
+
+      call parallel_gemm(  transa   = "T",                        &
+                           transb   = "N",                        &
+                           m        = n_active,                   &
+                           n        = n_active,                   &
+                           k        = nao,                        &
+                           alpha    = 1.0_dp,                     &
+                           matrix_a = gs_mos(ispin)%mos_active,   & ! ao x act -T> act x ao 
+                           matrix_b = work_ao_act,                & ! ao x act
+                           beta     = 0.0_dp,                     &
+                           matrix_c = work_act_act)                 ! act x act  
+      call cp_fm_release(work_ao_act)
+
+      !2.3
+      ! contract S_kappanu to  S_kappaI = S_kappanu C_nuI
+      CALL cp_dbcsr_sm_fm_multiply( matrix   = matrix_s(1)%matrix,         & !ao x ao
+                                    fm_in    = gs_mos(ispin)%mos_inactive, & !ao x mo_inact
+                                    fm_out   = work_ao_inact,              & !ao x mo_inact
+                                    ncol     = n_inactive,                 &
+                                    alpha    = 1.0_dp,                     & !all these may have to be focc
+                                    beta     = 0.0_dp)
+
+      !2.4                                    
+      ! contract MiI = X_kappak^T S_kappaI
+      !call parallel_gemm(  transa   = "T",            &
+      !                     transb   = "N",            &
+      !                     m        = n_active,       &
+      !                     n        = n_active,       &
+      !                     k        = nao,            &
+      !                     alpha    = 1.0_dp,         &
+      !                     matrix_a = evect,          & ! ao x act -T> act x ao 
+      !                     matrix_b = work_ao_inact,  & ! ao x inact
+      !                     beta     = 1.0_dp,         &
+      !                     matrix_c = work_inact_act)    ! act x inact  
+      ! actually do it the other way around so we get the proper dimensions out at the end 
+      ! MIi = MiI^T = (X_kappak^T S_kappanu C_nuI)^T 
+                   !=  X_kappak  (S_kappanu C_nuI)^T 
+      call parallel_gemm(  transa   = "T",            &
+                           transb   = "N",            &
+                           m        = n_inactive,     &
+                           n        = n_active,       &
+                           k        = nao,            &
+                           alpha    = 1.0_dp,         &
+                           matrix_a = work_ao_inact,  & ! ao x inact -T> inact x ao 
+                           matrix_b = evect,          & ! ao x act
+                           beta     = 0.0_dp,         &
+                           matrix_c = work_inact_act)    ! inact x act  
+      
+      call cp_fm_release(work_ao_inact)
+
+      !2.5
+      ! contract MIi with K_ik^T? 
+      call parallel_gemm(  transa   = "N",            &
+                           transb   = "N",            &
+                           m        = n_inactive,     &
+                           n        = n_active,       &
+                           k        = n_active,       &
+                           alpha    = -2.0_dp * focc, &
+                           matrix_a = work_inact_act, & ! inact x act 
+                           matrix_b = work_act_act,   & ! act x act !K^T is the transpos. frankly i lost track of this...
+                           beta     = 1.0_dp,         &
+                           matrix_c = cp_mos_active)    ! inact x act  
+
+      call cp_fm_release(work_act_act)
+      call cp_fm_release(work_inact_act)
+
+
+      CALL timestop(handle)
+
+
+   END SUBROUTINE add_kernel_contributions_res
+
 
 ! **************************************************************************************************
 !> \brief Calculates the g_xc contributions to w_bar multipliers and adds them to Lambda. 
@@ -2157,7 +2472,7 @@ CONTAINS
 !> \param qs_env ...
 !> \param ex_env Lambda is in matrix_wx1 
 !> \param gs_mos ...
-!> \param debug_forces default .False. , pass .True. for debugging. Currently does nothing
+!> \param debug_forces default .False. , pass .True. for debugging. Currently does nothing. unused variables not allowed currently so deactivated for now 
 ! **************************************************************************************************
    SUBROUTINE add_gxc_to_lambda_res(qs_env, gs_mos, matrix_gx, matrix_wx1)
       
