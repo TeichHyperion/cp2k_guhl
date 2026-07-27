@@ -1530,95 +1530,9 @@ CONTAINS
          !end do
 
 
-         ! now do X^T K(D^x) C_occ
-         ! K is hz
-         
-         !do ispin =1, nspins
-          !  n_occ = gs_mos(ispin)%nmo_occ
-          !  n_act = gs_mos(ispin)%nmo_active
-
-            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! (NOT) Kernel Contributions !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            ! K[D^x] is stored in
-            ! this is trash and needs to be moved to fhxc_forces, where the Kernel is actually calculated...
-            ! i dont think the kernel is even in this...
-            ! this needs to be redone almost entirely!
-            ! K[D^x] is split into three parts? matrix_hx, matrix_fx, matrix_hfx. for the hartree, xc and exact exchange kernels.
-            ! but i will fix the g_xc contributions first
-
-            !K inact inact
-
-            CALL cp_fm_struct_create(  fm_struct_act_act,                                       &
-                                       template_fmstruct = gs_mos(ispin)%mos_occ%matrix_struct, &
-                                       nrow_global       = n_active,                               &
-                                       ncol_global       = n_active)
-            CALL cp_fm_create       (  K_act_act, &
-                                       fm_struct_act_act)
-            CALL cp_fm_struct_release( fm_struct_act_act)
-
-
-            CALL parallel_gemm(  transa   = "T",                     &
-                                 transb   = "N",                     &
-                                 m        = n_active,                   &
-                                 n        = n_active,                   &
-                                 k        = nao,                     &
-                                 alpha    = 1.0_dp / focc,           & 
-                                 matrix_a = gs_mos(ispin)%mos_active,&
-                                 matrix_b = fm_work_nao_nact,        &
-                                 beta     = 0.0_dp,                  &
-                                 matrix_c = K_act_act)   
-
-            ! add to R_tilde
-            CALL parallel_gemm(  transa   = "N",                     &
-                                 transb   = "N",                     &
-                                 m        = n_active,                   &
-                                 n        = n_inactive,                   &
-                                 k        = n_active,                   &
-                                 alpha    = 2.0_dp,                  &
-                                 matrix_a = K_act_act,               &
-                                 matrix_b = evect(ispin),            &
-                                 beta     = 1.0_dp,                  &
-                                 matrix_c = cp_mos_active(ispin))
-
-            CALL cp_fm_release(K_act_act)
-            CALL cp_fm_release(fm_work_nao_nact)
-
-            !K occ occ
-
-            CALL cp_fm_struct_create(  fm_struct_occ_occ,                                       &
-                                       template_fmstruct = gs_mos(ispin)%mos_occ%matrix_struct, &
-                                       nrow_global       = n_inactive,                               &
-                                       ncol_global       = n_inactive)
-            CALL cp_fm_create       (  K_occ_occ, &
-                                       fm_struct_occ_occ)
-            CALL cp_fm_struct_release( fm_struct_occ_occ)
- 
-            CALL parallel_gemm(  transa   = "T",                     &
-                                 transb   = "N",                     &
-                                 m        = n_inactive,                   &
-                                 n        = n_inactive,                   &
-                                 k        = nao,                     &
-                                 alpha    = 1.0_dp / focc,           & 
-                                 matrix_a = gs_mos(ispin)%mos_inactive,   &
-                                 matrix_b = cpmos(ispin),            &
-                                 beta     = 0.0_dp,                  &
-                                 matrix_c = K_occ_occ)
-            ! subtract from R_tilde
-            CALL parallel_gemm(  transa   = "N",                     &
-                                 transb   = "N",                     &
-                                 m        = n_act,                   &
-                                 n        = n_occ,                   &
-                                 k        = n_occ,                   &
-                                 alpha    = -2.0_dp,                 &
-                                 matrix_a = evect(ispin),            &
-                                 matrix_b = K_occ_occ,               &
-                                 beta     = 1.0_dp,                  &
-                                 matrix_c = cp_mos_active(ispin))
-            
-               CALL cp_fm_release(K_occ_occ)
-
-
-
-            ! i have cpmos_active (? maybe) now what i need is 
+            ! i have cpmos_active (? maybe) 
+            ! double check if gxc and K have been added at this point or if this needs to move to fhxc_force
+            !now what i need is 
             ! R_Ii/(e_i-e_I) 
             ! why are there no distributed element wise sums?
 
@@ -1638,7 +1552,7 @@ CONTAINS
 
                   if (abs(e_diff) < 1.0E-10_dp) then
                      has_degeneracy = .True.
-                     R_global(i_inact, i_act) = 0.0_dp 
+                     R_global(i_inact, i_act) = 0.0_dp  !?
                   else 
                      R_global(i_inact, i_act) = R_global(i_inact, i_act) / e_diff
                   end if 
@@ -1648,7 +1562,7 @@ CONTAINS
          CALL cp_fm_set_submatrix(cp_mos_active(ispin), R_global)
          deallocate(R_global)
          if ( has_degeneracy ) then
-            call cp_warn(__LOCATION__, "near degeneracy or degeneracy detected between occ and act orbitals")
+            call cp_warn(__LOCATION__, "near degeneracy or degeneracy detected between inactive and act orbitals")
          end if
          end do 
       end if
