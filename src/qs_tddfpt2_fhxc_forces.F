@@ -2197,10 +2197,11 @@ CONTAINS
 
       ! matrices and structs
       TYPE(cp_fm_type), POINTER                          :: work_ao_act, work_act_act, work_inact_act, &
-                                                            work_ao_inact, cp_mos_active, evect
+                                                            work_ao_inact
+      TYPE(cp_fm_type), intent(inout)                    :: cp_mos_active
+      TYPE(cp_fm_type), intent(in)                       :: evect
       TYPE(cp_fm_struct_type), POINTER                   :: work_act_act_struct, work_inact_act_struct
-      TYPE(dbcsr_p_type), POINTER, &
-         intent(in), optional                            :: matrix_hx, matrix_hfx, matrix_fx, matrix_hfx_asymm
+      TYPE(dbcsr_p_type), intent(in), optional           :: matrix_hx, matrix_hfx, matrix_fx, matrix_hfx_asymm
       TYPE(dbcsr_type)                                   :: matrix_k
       TYPE(dbcsr_p_type), POINTER, dimension(:)          :: matrix_s
 
@@ -2242,7 +2243,7 @@ CONTAINS
       !end if 
 
       IF (PRESENT(matrix_hx)) THEN
-         IF (ASSOCIATED(matrix_hx))  then
+         IF (ASSOCIATED(matrix_hx%matrix))  then
             call dbcsr_add(matrix_a       = matrix_k,          &
                            matrix_b       = matrix_hx%matrix,  &
                            alpha_scalar   = 1.0_dp,            &
@@ -2258,7 +2259,7 @@ CONTAINS
       !                  beta_scalar    = 1.0_dp) 
       !end if 
       IF (PRESENT(matrix_fx)) THEN
-         IF (ASSOCIATED(matrix_fx))  then
+         IF (ASSOCIATED(matrix_fx%matrix))  then
             call dbcsr_add(matrix_a       = matrix_k,          &
                            matrix_b       = matrix_fx%matrix,  &
                            alpha_scalar   = 1.0_dp,            &
@@ -2283,7 +2284,7 @@ CONTAINS
       !end if 
 
       IF (PRESENT(matrix_hfx)) THEN
-         IF (ASSOCIATED(matrix_hfx))  then
+         IF (ASSOCIATED(matrix_hfx%matrix))  then
             call dbcsr_add(matrix_a       = matrix_k,          &
                            matrix_b       = matrix_hfx%matrix, &
                            alpha_scalar   = 1.0_dp,            &
