@@ -838,7 +838,7 @@ CONTAINS
 !> \param matrix_hz Holds H_{\mu\nu\sigma}[matrix_pe] on exit
 !> \param cpmos ...
 ! **************************************************************************************************
-   SUBROUTINE tddfpt_resvec2(qs_env, matrix_pe, matrix_pe_admm, gs_mos, matrix_hz, cpmos, cp_mos_active, evect)
+   SUBROUTINE tddfpt_resvec2(qs_env, matrix_pe, matrix_pe_admm, gs_mos, matrix_hz, cpmos, cp_mos_active)
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_pe, matrix_pe_admm
@@ -896,8 +896,7 @@ CONTAINS
                                                             xc_section
       TYPE(task_list_type), POINTER                      :: task_list
       TYPE(xc_rho_cflags_type)                           :: needs
-      INTEGER                                            :: n_act, n_occ
-      TYPE(cp_fm_type), dimension(:),optional,intent(in) :: evect
+      
       CALL timeset(routineN, handle)
 
       NULLIFY (pw_env)
