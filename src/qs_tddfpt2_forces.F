@@ -1441,7 +1441,7 @@ CONTAINS
 
       ! matrices and structs
       TYPE(cp_fm_type), POINTER                          :: work_ao_act, work_ao_inact 
-      TYPE(cp_fm_type), dimension(:), POINTER            :: cp_mos_active
+      TYPE(cp_fm_type), dimension(:), intent(inout)      :: cp_mos_active
       TYPE(dbcsr_p_type), intent(inout), DIMENSION(:), &
                                                 optional :: matrix_hz
                                                  
@@ -1594,7 +1594,7 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
 
       ! matrices and structs
-      TYPE(cp_fm_struct_type), dimension(:), POINTER     :: cp_mos_active
+      TYPE(cp_fm_type), dimension(:), intent(inout)      :: cp_mos_active
       real(kind=dp), allocatable                         :: R_global(:,:)
 
       ! integers and reals
