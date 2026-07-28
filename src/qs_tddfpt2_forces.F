@@ -36,7 +36,9 @@ MODULE qs_tddfpt2_forces
                                               cp_fm_get_info,&
                                               cp_fm_release,&
                                               cp_fm_set_all,&
-                                              cp_fm_type
+                                              cp_fm_type,&
+                                              cp_fm_set_submatrix,&
+                                              cp_fm_get_submatrix
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_get_default_unit_nr,&
                                               cp_logger_get_default_io_unit,&
