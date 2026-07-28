@@ -897,15 +897,7 @@ CONTAINS
       TYPE(task_list_type), POINTER                      :: task_list
       TYPE(xc_rho_cflags_type)                           :: needs
       INTEGER                                            :: n_act, n_occ
-      TYPE(cp_fm_type), POINTER                          :: K_act_act, K_occ_occ
-      TYPE(cp_fm_struct_type) , POINTER                  :: fm_struct_act_act, fm_struct_occ_occ
       TYPE(cp_fm_type), dimension(:),optional,intent(in) :: evect
-      TYPE(cp_fm_type), pointer                          :: h_ao_inact, h_ao_act, fm_work_nao_nact
-      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: R_global
-      INTEGER                                            :: i_act, i_inact, index_inactive, &
-                                                            index_active, n_active, n_inactive
-      REAL(KIND=dp)                                      :: e_diff, e_inactive, e_active
-      logical                                            :: has_degeneracy = .False.
       CALL timeset(routineN, handle)
 
       NULLIFY (pw_env)
@@ -1449,8 +1441,8 @@ CONTAINS
 
       ! matrices and structs
       TYPE(cp_fm_type), POINTER                          :: work_ao_act, work_ao_inact , cp_mos_active
-      TYPE(dbcsr_p_type), POINTER, &
-         intent(in), optional                            :: matrix_hz
+      TYPE(dbcsr_p_type), intent(inout), DIMENSION(:), &
+                                                optional :: matrix_hz
 
       ! integers and reals
       INTEGER                                            :: n_active, n_inactive, nspins, nao, handle , ispin
@@ -1474,7 +1466,7 @@ CONTAINS
 
 
          !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! H_Ii !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-         nullify(h_ao_act)
+         nullify(work_ao_act)
          call cp_fm_create(            matrix         = work_ao_act, &
                                        matrix_struct  = gs_mos(ispin)%mos_active%matrix_struct) !ao x nact
 
@@ -1600,13 +1592,16 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
 
       ! matrices and structs
-      TYPE(cp_fm_struct_type), POINTER                   :: cp_mos_active
+      TYPE(cp_fm_struct_type), dimension(:), POINTER     :: cp_mos_active
       real(kind=dp), allocatable                         :: R_global(:,:)
 
       ! integers and reals
-      INTEGER                                            :: n_active, n_inactive, nspins, nao, handle , index_active, index_inactive, i_act, i_inact
+      INTEGER                                            :: n_active, n_inactive, nspins, nao, handle,&
+                                                            index_active, index_inactive, i_act, i_inact
       INTEGER                                            :: ispin
-      real(kind=dp)                                      :: focc = 2.0_dp, , e_active, e_inactive, e_diff
+      real(kind=dp)                                      :: focc = 2.0_dp, e_active, e_inactive, e_diff
+
+      logical                                            :: has_degeneracy = .false.
 
 
       ! i have cpmos_active (? maybe) 
