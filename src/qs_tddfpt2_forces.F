@@ -451,6 +451,7 @@ CONTAINS
                                     ex_env%vh_rspace)
          CALL tddfpt_force_direct(qs_env, ex_env, gs_mos, kernel_env, sub_env, &
                                   work_matrices, debug_forces)
+         call tddfpt_R_energy_weighting(qs_env, gs_mos, ex_env%cp_mos_active)
       END IF
       !
       ! add TD and KS forces
@@ -1418,161 +1419,254 @@ CONTAINS
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! RES !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
       if (present(cp_mos_active)) then 
-         do ispin = 1, nspins
-            n_inactive = gs_mos(ispin)%nmo_inactive
-            n_active = gs_mos(ispin)%nmo_active
-            
-            ! i belive at this point cpmos contains H*C_occ. 
-            ! but i need at the end H_Ii so shape inact x act, so lets start from matrix_hz (ao x ao)
-            ! if H_Ii is symmetrical these contributions cancel. We could skip this block if nspins = 1 and we do same spin excitations?
-
-
-            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! H_Ii !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            nullify(h_ao_act)
-            call cp_fm_create(            matrix         = h_ao_act, &
-                                          matrix_struct  = gs_mos(ispin)%mos_active%matrix_struct) !ao x nact
-
-            CALL cp_dbcsr_sm_fm_multiply( matrix         = matrix_hz(ispin)%matrix,    & !ao x ao
-                                          fm_in          = gs_mos(ispin)%mos_active,   & !ao x act
-                                          fm_out         = h_ao_act,                   & !ao x act        
-                                          ncol           = n_active,                    &
-                                          alpha          = focc,                       &
-                                          beta           = 0.0_dp) ! this does H_munu x C_act = H_mu_act
-            
-            ! C_active^T * (H * C_act)
-            call parallel_gemm(           transa         = "T",                        &
-                                          transb         = "N",                        &
-                                          m              = n_inactive,                    &
-                                          n              = n_active,                    &
-                                          k              = nao,                        &
-                                          alpha          = 1.0_dp,                     &
-                                          matrix_a       = gs_mos(ispin)%mos_inactive, & ! ao x n_ainct -T> n_inact x ao 
-                                          matrix_b       = h_ao_act,                   & ! ao x n_act
-                                          beta           = 0.0_dp,                     &
-                                          matrix_c       = cp_mos_active(ispin))         ! n_inact x n_act (aka R_Ii = H_Ii = C_inact^T H_munu x C_act )
-
-            call cp_fm_release(h_ao_act)
-            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! END H_Ii !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-       
-
-            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! H_iI !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-            ! (H * C_inactive)^T * C_act
-
-            nullify(h_ao_inact)
-            call cp_fm_create(         matrix            = h_ao_inact, &
-                                       matrix_struct     = gs_mos(ispin)%mos_inactive%matrix_struct)!ao x inact            
-            ! H * C_inact
-            call cp_dbcsr_sm_fm_multiply( matrix   = matrix_hz(ispin)%matrix,    & !ao x ao
-                                          fm_in    = gs_mos(ispin)%mos_inactive, & !ao x inact
-                                          fm_out   = h_ao_inact,          & !ao x inact
-                                          ncol     = n_inactive,                    &
-                                          alpha    = focc,                       &
-                                          beta     = 0.0_dp  )          ! this does H_munu x C_inact = H_mu_inact
-            
-            !faster and should be equivalent:
-            call parallel_gemm(  transa   = "T",                     &
-                                 transb   = "N",                     &
-                                 m        = n_inactive,                 &
-                                 n        = n_active,                &
-                                 k        = nao,                     &
-                                 alpha    = -1.0_dp,                 &
-                                 matrix_a = h_ao_inact,              & !ao x inact -T> inact x ao
-                                 matrix_b = gs_mos(ispin)%mos_active,& !ao x act
-                                 beta     = 1.0_dp,                  &
-                                 matrix_c = cp_mos_active(ispin))      !act x inact     (R - H_iI = R - C_act^T x H_munu x C_inact  )
-            call cp_fm_release(h_ao_inact)
-                                 
-            ! should be equivalent to the naive way: kept only for reference
-            !!!!!!!!!!!!!!! act x inact !!!!!!!!!!!!!!!
-            ! - H * C_inact                        
-                                 
-            !CALL cp_fm_struct_create(  fmstruct          = fm_struct_act_inact,                 & ! act x inact
-            !                           template_fmstruct = gs_mos(ispin)%mos_occ%matrix_struct, &
-            !                           nrow_global       = n_active,                             &
-            !                           ncol_global       = n_inactive)
-            !CALL cp_fm_create(         matrix            = H_act_inact, &                        
-            !                           matrix_struct     = fm_struct_act_inact)                   ! act x inact
-            !call cp_fm_struct_release( fmstuct           = fm_struct_act_inact)
-
-            !call parallel_gemm(  transa   = "T",                     &
-            !                     transb   = "N",                     &
-            !                     m        = n_active,                 &
-            !                     n        = n_inactive,                 &
-            !                     k        = nao,                     &
-            !                     alpha    = -1.0_dp,                 &
-            !                     matrix_a = gs_mos(ispin)%mos_active,& !ao x act -T> act x ao
-            !                     matrix_b = fm_work_nao_inact ,      & !ao x inact
-            !                     beta     = 1.0_dp,                  &
-            !                     matrix_c = H_act_inact)               !act x inact     (-H_iI = -C_act^T x H_munu x C_inact  )
-            !call cp_fm_release(H_act_inact)
-
-            !!!!!!!!!!!!!!! inact x act !!!!!!!!!!!!!!!
-            !CALL cp_fm_struct_create(  fmstruct          = fm_struct_inact_act,                 & ! inact x act
-            !                           template_fmstruct = gs_mos(ispin)%mos_occ%matrix_struct, &
-            !                           nrow_global       = n_inactive,                             &
-            !                           ncol_global       = n_active)
-            !call cp_fm_create(         matrix            = H_inact_act,&
-            !                           matrix_struct     = fm_struct_inact_act)
-            !call cp_fm_struct_release( fmstuct           = fm_struct_inact_act)
-
-            !call cp_fm_transpose(   matrix   = H_act_inact, &
-            !                        matrixt  = H_inact_act)  ! -H_iI^T
-
-            !call cp_fm_scale_and_add(  alpha    = 1.0_dp,            & 
-            !                           matrix_a = H_inact_act,       & 
-            !                           beta     = 1.0_dp,            &
-            !                           matrix_b = cp_mos_active(ispin))
-            !call cp_fm_release(H_inact_act)
-
-            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! END H_iI !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-         !end do
-
-
-            ! i have cpmos_active (? maybe) 
-            ! double check if gxc and K have been added at this point or if this needs to move to fhxc_force
-            !now what i need is 
-            ! R_Ii/(e_i-e_I) 
-            ! why are there no distributed element wise sums?
-
-
-            ALLOCATE(R_global(n_inactive, n_act))
-
-            call cp_fm_get_submatrix(cp_mos_active(ispin), R_global)
-
-            do i_act = 1, n_active
-               index_active   = gs_mos(ispin)%index_active(i_act)
-               e_active       = gs_mos(ispin)%evals_occ(index_active)
-               do i_inact = 1, n_inactive
-                  index_inactive = gs_mos(ispin)%index_inactive(i_inact)
-                  e_inactive     = gs_mos(ispin)%evals_occ(index_inactive)
-
-                  e_diff         = e_active - e_inactive
-
-                  if (abs(e_diff) < 1.0E-10_dp) then
-                     has_degeneracy = .True.
-                     R_global(i_inact, i_act) = 0.0_dp  !?
-                  else 
-                     R_global(i_inact, i_act) = R_global(i_inact, i_act) / e_diff
-                  end if 
-               end do 
-            end do
-
-         CALL cp_fm_set_submatrix(cp_mos_active(ispin), R_global)
-         deallocate(R_global)
-         if ( has_degeneracy ) then
-            call cp_warn(__LOCATION__, "near degeneracy or degeneracy detected between inactive and act orbitals")
-         end if
-         end do 
+         CALL tddfpt_add_H_T_res(qs_env, gs_mos, matrix_hz, cp_mos_active)
       end if
-
          !  notiz für später später : P in responce force P = D^Z +T + D_tilde^Z
-      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! END RES !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! END RES !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
       CALL timestop(handle)
 
    END SUBROUTINE tddfpt_resvec2
+
+
+
+   
+! **************************************************************************************************
+!> \brief ...
+!> \param qs_env ...
+!> \param matrix_pe ...
+!> \param gs_mos ...
+!> \param matrix_hz ...
+!> \param cpmos ...
+! **************************************************************************************************
+   SUBROUTINE tddfpt_add_H_T_res(qs_env, gs_mos, matrix_hz, cp_mos_active)
+      !name and envs 
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'tddfpt_add_H_T_res'
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
+         POINTER                                         :: gs_mos
+      TYPE(dft_control_type), POINTER                    :: dft_control
+
+      ! matrices and structs
+      TYPE(cp_fm_type), POINTER                          :: work_ao_act, work_ao_inact , cp_mos_active
+      TYPE(dbcsr_p_type), POINTER, &
+         intent(in), optional                            :: matrix_hz
+
+      ! integers and reals
+      INTEGER                                            :: n_active, n_inactive, nspins, nao, handle , ispin
+      real(kind=dp)                                      :: focc = 2.0_dp
+
+      CALL timeset(routineN, handle)
+
+      CALL get_qs_env(  qs_env        = qs_env,  & 
+                        dft_control   = dft_control)
+      call cp_fm_get_info(gs_mos(1)%mos_occ, ncol_global=nao)
+      nspins      = dft_control%nspins
+
+      if (nspins == 1 ) focc = 1
+
+      do ispin = 1, nspins
+         n_inactive  = gs_mos(ispin)%nmo_inactive
+         n_active    = gs_mos(ispin)%nmo_active
+         
+         ! I need at the end H_Ii so shape inact x act, so lets start from matrix_hz (ao x ao)
+         ! if H_Ii is symmetrical these contributions cancel. We could skip this block if nspins = 1 and we do same spin excitations is_rks_triplets?
+
+
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! H_Ii !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+         nullify(h_ao_act)
+         call cp_fm_create(            matrix         = work_ao_act, &
+                                       matrix_struct  = gs_mos(ispin)%mos_active%matrix_struct) !ao x nact
+
+         CALL cp_dbcsr_sm_fm_multiply( matrix         = matrix_hz(ispin)%matrix,    & !ao x ao
+                                       fm_in          = gs_mos(ispin)%mos_active,   & !ao x act
+                                       fm_out         = work_ao_act,                & !ao x act        
+                                       ncol           = n_active,                   &
+                                       alpha          = focc,                       &
+                                       beta           = 0.0_dp)                        ! this does H_munu x C_act = H_mu_act
+         
+         ! C_active^T * (H * C_act)
+         call parallel_gemm(           transa         = "T",                        &
+                                       transb         = "N",                        &
+                                       m              = n_inactive,                 &
+                                       n              = n_active,                   &
+                                       k              = nao,                        &
+                                       alpha          = 1.0_dp,                     &
+                                       matrix_a       = gs_mos(ispin)%mos_inactive, & ! ao x n_inact -T> n_inact x ao 
+                                       matrix_b       = work_ao_act,                & ! ao x n_act
+                                       beta           = 0.0_dp,                     & ! this overwrites cp_mos_active, which should be empty at this point
+                                       matrix_c       = cp_mos_active(ispin))         ! n_inact x n_act (aka R_Ii = H_Ii = C_inact^T H_munu x C_act )
+
+         call cp_fm_release(work_ao_act)
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! END H_Ii !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      
+
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! H_iI !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+         ! (H * C_inactive)^T * C_act
+
+         nullify(work_ao_inact)
+         call cp_fm_create(         matrix            = work_ao_inact, &
+                                    matrix_struct     = gs_mos(ispin)%mos_inactive%matrix_struct)!ao x inact            
+         ! H * C_inact
+         call cp_dbcsr_sm_fm_multiply( matrix   = matrix_hz(ispin)%matrix,    & !ao x ao
+                                       fm_in    = gs_mos(ispin)%mos_inactive, & !ao x inact
+                                       fm_out   = work_ao_inact,          & !ao x inact
+                                       ncol     = n_inactive,                    &
+                                       alpha    = focc,                       &
+                                       beta     = 0.0_dp  )          ! this does H_munu x C_inact = H_mu_inact
+         
+         !faster and should be equivalent:
+         call parallel_gemm(  transa   = "T",                     &
+                              transb   = "N",                     &
+                              m        = n_inactive,                 &
+                              n        = n_active,                &
+                              k        = nao,                     &
+                              alpha    = -1.0_dp,                 &
+                              matrix_a = work_ao_inact,              & !ao x inact -T> inact x ao
+                              matrix_b = gs_mos(ispin)%mos_active,& !ao x act
+                              beta     = 1.0_dp,                  &
+                              matrix_c = cp_mos_active(ispin))      !act x inact     (R - H_iI = R - C_act^T x H_munu x C_inact  )
+         call cp_fm_release(work_ao_inact)
+                              
+         ! should be equivalent to the naive way: kept only for reference
+         !!!!!!!!!!!!!!! act x inact !!!!!!!!!!!!!!!
+         ! - H * C_inact                        
+                              
+         !CALL cp_fm_struct_create(  fmstruct          = fm_struct_act_inact,                 & ! act x inact
+         !                           template_fmstruct = gs_mos(ispin)%mos_occ%matrix_struct, &
+         !                           nrow_global       = n_active,                             &
+         !                           ncol_global       = n_inactive)
+         !CALL cp_fm_create(         matrix            = H_act_inact, &                        
+         !                           matrix_struct     = fm_struct_act_inact)                   ! act x inact
+         !call cp_fm_struct_release( fmstuct           = fm_struct_act_inact)
+
+         !call parallel_gemm(  transa   = "T",                     &
+         !                     transb   = "N",                     &
+         !                     m        = n_active,                 &
+         !                     n        = n_inactive,                 &
+         !                     k        = nao,                     &
+         !                     alpha    = -1.0_dp,                 &
+         !                     matrix_a = gs_mos(ispin)%mos_active,& !ao x act -T> act x ao
+         !                     matrix_b = fm_work_nao_inact ,      & !ao x inact
+         !                     beta     = 1.0_dp,                  &
+         !                     matrix_c = H_act_inact)               !act x inact     (-H_iI = -C_act^T x H_munu x C_inact  )
+         !call cp_fm_release(H_act_inact)
+
+         !!!!!!!!!!!!!!! inact x act !!!!!!!!!!!!!!!
+         !CALL cp_fm_struct_create(  fmstruct          = fm_struct_inact_act,                 & ! inact x act
+         !                           template_fmstruct = gs_mos(ispin)%mos_occ%matrix_struct, &
+         !                           nrow_global       = n_inactive,                             &
+         !                           ncol_global       = n_active)
+         !call cp_fm_create(         matrix            = H_inact_act,&
+         !                           matrix_struct     = fm_struct_inact_act)
+         !call cp_fm_struct_release( fmstuct           = fm_struct_inact_act)
+
+         !call cp_fm_transpose(   matrix   = H_act_inact, &
+         !                        matrixt  = H_inact_act)  ! -H_iI^T
+
+         !call cp_fm_scale_and_add(  alpha    = 1.0_dp,            & 
+         !                           matrix_a = H_inact_act,       & 
+         !                           beta     = 1.0_dp,            &
+         !                           matrix_b = cp_mos_active(ispin))
+         !call cp_fm_release(H_inact_act)
+
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! END H_iI !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+      end do
+
+
+
+      !  notiz für später später : P in responce force P = D^Z +T + D_tilde^Z
+   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! END RES !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+      CALL timestop(handle)
+   END SUBROUTINE tddfpt_add_H_T_res
+
+! **************************************************************************************************
+!> \brief ...
+!> \param qs_env ...
+!> \param matrix_pe ...
+!> \param gs_mos ...
+!> \param matrix_hz ...
+!> \param cpmos ...
+! **************************************************************************************************
+   SUBROUTINE tddfpt_R_energy_weighting(qs_env, gs_mos, cp_mos_active)
+      !name and envs 
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'tddfpt_R_energy_weighting'
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
+         POINTER                                         :: gs_mos
+      TYPE(dft_control_type), POINTER                    :: dft_control
+
+      ! matrices and structs
+      TYPE(cp_fm_struct_type), POINTER                   :: cp_mos_active
+      real(kind=dp), allocatable                         :: R_global(:,:)
+
+      ! integers and reals
+      INTEGER                                            :: n_active, n_inactive, nspins, nao, handle , index_active, index_inactive, i_act, i_inact
+      INTEGER                                            :: ispin
+      real(kind=dp)                                      :: focc = 2.0_dp, , e_active, e_inactive, e_diff
+
+
+      ! i have cpmos_active (? maybe) 
+      ! double check if gxc and K have been added at this point or if this needs to move to fhxc_force
+      !now what i need is 
+      ! R_Ii/(e_i-e_I) 
+      ! why are there no distributed element wise sums?
+
+      ! this is probably not good because its not parallel
+      CALL timeset(routineN, handle)
+
+      CALL get_qs_env(  qs_env        = qs_env,  & 
+                        dft_control   = dft_control)
+      call cp_fm_get_info(gs_mos(1)%mos_occ, ncol_global=nao)
+      nspins      = dft_control%nspins
+
+      if (nspins == 1 ) focc = 1
+
+
+      do ispin = 1, nspins
+
+         n_inactive  = gs_mos(ispin)%nmo_inactive
+         n_active    = gs_mos(ispin)%nmo_active
+         
+         ALLOCATE(R_global(n_inactive, n_active))
+         call cp_fm_get_submatrix(cp_mos_active(ispin), R_global)
+
+         do i_act = 1, n_active
+            index_active   = gs_mos(ispin)%index_active(i_act)
+            e_active       = gs_mos(ispin)%evals_occ(index_active)
+            do i_inact = 1, n_inactive
+               index_inactive = gs_mos(ispin)%index_inactive(i_inact)
+               e_inactive     = gs_mos(ispin)%evals_occ(index_inactive)
+
+               e_diff         = e_active - e_inactive
+
+               if (abs(e_diff) < 1.0E-10_dp) then ! or whatever
+                  has_degeneracy = .True.
+                  R_global(i_inact, i_act) = 0.0_dp  ! is this legal? or maybe just skip the wheighting?
+               else 
+                  R_global(i_inact, i_act) = R_global(i_inact, i_act) / e_diff
+               end if 
+            end do 
+         end do
+
+         CALL cp_fm_set_submatrix(cp_mos_active(ispin), R_global)
+         deallocate(R_global)
+
+      end do
+
+      if ( has_degeneracy ) then
+         call cp_warn(__LOCATION__, "near degeneracy or degeneracy detected between inactive and act orbitals")
+      end if
+
+      CALL timestop(handle)
+
+   END SUBROUTINE tddfpt_R_energy_weighting
+
+
+
 
 ! **************************************************************************************************
 !> \brief ...
