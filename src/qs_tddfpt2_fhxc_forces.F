@@ -2186,7 +2186,8 @@ CONTAINS
 !> \param gs_mos ...
 !> \param debug_forces default .False. , pass .True. for debugging. Currently does nothing. unused variables not allowed currently so deactivated for now 
 ! **************************************************************************************************
-   SUBROUTINE add_kernel_contributions_res(qs_env, gs_mos, ispin, cp_mos_active, evect, matrix_hx, matrix_fx, matrix_hfx, matrix_hfx_asymm)
+   SUBROUTINE add_kernel_contributions_res(qs_env, gs_mos, ispin, cp_mos_active, evect, &
+                                          matrix_hx, matrix_fx, matrix_hfx, matrix_hfx_asymm)
       !name and envs 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'add_kernel_contributions_res'
       TYPE(qs_environment_type), POINTER                 :: qs_env
