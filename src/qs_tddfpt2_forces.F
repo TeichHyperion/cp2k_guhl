@@ -1440,9 +1440,9 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
 
       ! matrices and structs
-      TYPE(cp_fm_type), POINTER                          :: work_ao_act, work_ao_inact , cp_mos_active
+      TYPE(cp_fm_type), POINTER                          :: work_ao_act, work_ao_inact 
       TYPE(dbcsr_p_type), intent(inout), DIMENSION(:), &
-                                                optional :: matrix_hz
+                                                optional :: matrix_hz, cp_mos_active
 
       ! integers and reals
       INTEGER                                            :: n_active, n_inactive, nspins, nao, handle , ispin
