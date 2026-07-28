@@ -1441,8 +1441,10 @@ CONTAINS
 
       ! matrices and structs
       TYPE(cp_fm_type), POINTER                          :: work_ao_act, work_ao_inact 
+      TYPE(cp_fm_type), dimension(:), POINTER            :: cp_mos_active
       TYPE(dbcsr_p_type), intent(inout), DIMENSION(:), &
-                                                optional :: matrix_hz, cp_mos_active
+                                                optional :: matrix_hz
+                                                 
 
       ! integers and reals
       INTEGER                                            :: n_active, n_inactive, nspins, nao, handle , ispin
