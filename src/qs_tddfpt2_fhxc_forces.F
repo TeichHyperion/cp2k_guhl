@@ -1497,7 +1497,9 @@ CONTAINS
       
          !!!!!!!!!!!!!!!!!!!!!!!!!!!!! RES !!!!!!!!!!!!!!!!!!!!!!!!!!
             ! Kernel contributions to R_Ii
-            print(size(matrix_fx))
+            if (iounit == 1) then
+               write(iounit, *) size(matrix_fx)
+            end if 
 
             call add_kernel_contributions_res(  qs_env            = qs_env,               &
                                                 gs_mos            = gs_mos,               &
