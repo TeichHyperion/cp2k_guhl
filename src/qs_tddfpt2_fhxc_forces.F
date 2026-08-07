@@ -1497,6 +1497,7 @@ CONTAINS
       
          !!!!!!!!!!!!!!!!!!!!!!!!!!!!! RES !!!!!!!!!!!!!!!!!!!!!!!!!!
             ! Kernel contributions to R_Ii
+            print(size(matrix_fx))
 
             call add_kernel_contributions_res(  qs_env            = qs_env,               &
                                                 gs_mos            = gs_mos,               &
