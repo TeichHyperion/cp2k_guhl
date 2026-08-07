@@ -1504,7 +1504,7 @@ CONTAINS
                                                 cp_mos_active     = ex_env%cp_mos_active(ispin), & 
                                                 evect             = evect(ispin),         &
                                                 matrix_hx         = matrix_hx(ispin),     & 
-                                                matrix_fx         = matrix_fx(ispin),     &
+                                                matrix_fx         = matrix_fx(ispin)%matrix,     & !bug 1 greater then dim 0
                                                 matrix_hfx        = matrix_hfx(ispin),    & 
                                                 matrix_hfx_asymm  = matrix_hfx_asymm(ispin))
 
