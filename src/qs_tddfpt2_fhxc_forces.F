@@ -1565,7 +1565,10 @@ CONTAINS
                                  matrix_gx      = matrix_gx,                   &
                                  ispin          = ispin)
 
-               call add_gxc_to_lambda_res(qs_env, gs_mos, matrix_gx, matrix_wx1)
+               call add_gxc_to_lambda_res(qs_env      = qs_env,      &
+                                          gs_mos      = gs_mos,      &
+                                          matrix_gx   = matrix_gx,   &
+                                          martrix_wx1 = matrix_wx1)
             end if
          !!!!!!!!!!!!!!!!!!!!!!!!!!!!! END RES !!!!!!!!!!!!!!!!!!!!!!!!!!
 
@@ -2592,7 +2595,7 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
 
       ! matrices and structs
-      TYPE(cp_fm_type), POINTER                          :: work_ao_act, work_act_act, work_ao_inact,&
+      TYPE(cp_fm_type)                                   :: work_ao_act, work_act_act, work_ao_inact,&
                                                              work_inact_act, work_inact_inact, g_xc_act
       TYPE(cp_fm_struct_type), POINTER                   ::  work_act_act_struct,&
                                                             work_inact_act_struct, work_inact_inact_struct
@@ -2624,7 +2627,7 @@ CONTAINS
          !!!!!!!!!!!!!!!!!!!!!!!!!!!!!! allocate work matrices !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
          ! the work matrix for dim: ao x nact
-         nullify(work_act_act, work_ao_act)
+         !nullify(work_act_act, work_ao_act)
 
          call cp_fm_create(matrix         = work_ao_act, &
                            matrix_struct  = gs_mos(ispin)%mos_active%matrix_struct )
