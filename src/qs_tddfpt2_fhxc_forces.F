@@ -1499,13 +1499,13 @@ CONTAINS
          !!!!!!!!!!!!!!!!!!!!!!!!!!!!! RES !!!!!!!!!!!!!!!!!!!!!!!!!!
             ! Kernel contributions to R_Ii
             IF (iounit > 0) THEN
-               WRITE(iounit,'(A)') 'Entering RES branch in fhxc_force'
+               WRITE(iounit,'(A)') 'DEBUG: Entering RES branch in fhxc_force'
                IF (ASSOCIATED(matrix_fx)) THEN
-                  WRITE(iounit,'(A,I10)') '   matrix_fx associated, size = ', SIZE(matrix_fx)
+                  WRITE(iounit,'(A,I10)') 'DEBUG:   matrix_fx associated, size = ', SIZE(matrix_fx)
                ELSE
-                  WRITE(iounit,'(A)') '   matrix_fx is NOT associated'
+                  WRITE(iounit,'(A)') 'DEBUG:   matrix_fx is NOT associated'
                END IF
-               WRITE(iounit,'(A,I10)') '   ispin = ', ispin
+               WRITE(iounit,'(A,I10)') 'DEBUG:   ispin = ', ispin
                FLUSH(iounit)
             END IF
 
@@ -2119,7 +2119,7 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
 
       ! matrices and structs
-      TYPE(cp_fm_type), POINTER                          :: gx_ao_act, gx_ao_inact
+      TYPE(cp_fm_type)                                   :: gx_ao_act, gx_ao_inact
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER, &
          intent(in)                                      :: matrix_gx
       TYPE(cp_fm_type), POINTER, dimension(:), &
@@ -2249,7 +2249,7 @@ CONTAINS
       real(kind=dp)                                      :: focc = 2.0_dp
 
       ! logicals
-      !logical                                            :: debug_forces = .False.
+      logical                                            :: debug_forces = .True.
 
       ! most efficient way to do this is prob to sum all three matrices and the calculate and add the contribution 
       ! or have this routine be invariant to which contribution is added and add them immeadieately whenever one of the conributions is calculated
@@ -2257,8 +2257,24 @@ CONTAINS
       ! The way its currently done seems very inefficent. it keeps all matrices in memory for long and then does the contration seperately for each contribution?
       CALL timeset(routineN, handle)
       
-      !NULLIFY (work_ao_act, work_act_act, work_inact_act, work_ao_inact, &
-      !   work_act_act_struct, work_inact_act_struct) ! 
+      IF (debug_forces) then
+         IF (iounit > 0) THEN
+            WRITE(iounit,'(A)') 'DEBUG: Entering add_kernel_contributions_res'
+            IF (ASSOCIATED(matrix_fx)) THEN
+               WRITE(iounit,'(A,I10)') 'DEBUG:   matrix_fx associated, size = ', SIZE(matrix_fx)
+            ELSE
+               WRITE(iounit,'(A)') 'DEBUG:   matrix_fx is NOT associated'
+            END IF
+            WRITE(iounit,'(A,I10)') 'DEBUG:   ispin = ', ispin
+            FLUSH(iounit)
+         END IF
+      end if
+
+      NULLIFY (work_ao_act, work_act_act, work_inact_act, work_ao_inact, &
+               work_act_act_struct, work_inact_act_struct) ! 
+
+
+
 
       CALL get_qs_env(qs_env        = qs_env,      & 
                       dft_control   = dft_control, & 
