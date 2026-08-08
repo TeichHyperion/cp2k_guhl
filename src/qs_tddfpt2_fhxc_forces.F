@@ -2334,7 +2334,7 @@ CONTAINS
 
       n_active    = gs_mos(ispin)%nmo_active
       n_inactive  = gs_mos(ispin)%nmo_inactive
-      call cp_fm_get_info(gs_mos(ispin)%mos_occ, ncol_global=nao)
+      call cp_fm_get_info(gs_mos(ispin)%mos_occ, nrow_global=nao)
       nspins      = dft_control%nspins
       IF (nspins == 2) focc = 1.0_dp
 

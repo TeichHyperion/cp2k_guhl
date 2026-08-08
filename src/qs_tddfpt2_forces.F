@@ -344,6 +344,9 @@ CONTAINS
       ! Calculate first term of R vector: H_{\mu i\sigma}[T]
       IF (dft_control%qs_control%xtb) THEN
          CALL tddfpt_resvec2_xtb(qs_env, ex_env%matrix_pe, gs_mos, ex_env%matrix_hz, ex_env%cpmos)
+      ELSE if (do_res) then
+         CALL tddfpt_resvec2(qs_env, ex_env%matrix_pe, ex_env%matrix_pe_admm, &
+                             gs_mos, ex_env%matrix_hz, ex_env%cpmos, ex_env%cp_mos_active)
       ELSE
          CALL tddfpt_resvec2(qs_env, ex_env%matrix_pe, ex_env%matrix_pe_admm, &
                              gs_mos, ex_env%matrix_hz, ex_env%cpmos)
@@ -1454,7 +1457,7 @@ CONTAINS
 
       CALL get_qs_env(  qs_env        = qs_env,  & 
                         dft_control   = dft_control)
-      call cp_fm_get_info(gs_mos(1)%mos_occ, ncol_global=nao)
+      call cp_fm_get_info(gs_mos(1)%mos_occ, nrow_global=nao)
       nspins      = dft_control%nspins
 
       if (nspins == 1 ) focc = 1
@@ -1617,7 +1620,7 @@ CONTAINS
 
       CALL get_qs_env(  qs_env        = qs_env,  & 
                         dft_control   = dft_control)
-      call cp_fm_get_info(gs_mos(1)%mos_occ, ncol_global=nao)
+      call cp_fm_get_info(gs_mos(1)%mos_occ, nrow_global=nao)
       nspins      = dft_control%nspins
 
       if (nspins == 1 ) focc = 1
