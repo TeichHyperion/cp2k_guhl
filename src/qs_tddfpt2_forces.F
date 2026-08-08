@@ -1502,7 +1502,7 @@ CONTAINS
 
          ! (H * C_inactive)^T * C_act
 
-         nullify(work_ao_inact)
+         !nullify(work_ao_inact)
          call cp_fm_create(         matrix            = work_ao_inact, &
                                     matrix_struct     = gs_mos(ispin)%mos_inactive%matrix_struct)!ao x inact            
          ! H * C_inact
