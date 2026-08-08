@@ -2133,6 +2133,7 @@ CONTAINS
       TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
          POINTER                                         :: gs_mos
       TYPE(dft_control_type), POINTER                    :: dft_control
+      TYPE(cp_logger_type), POINTER                      :: logger
 
       ! matrices and structs
       TYPE(cp_fm_type)                                   :: gx_ao_act, gx_ao_inact
@@ -2141,11 +2142,11 @@ CONTAINS
       TYPE(cp_fm_type), POINTER, dimension(:), &
                                  intent(inout)           :: cp_mos_active
       ! integers and reals
-      INTEGER                                            :: n_active, n_inactive, ispin, nspins, nao, handle 
+      INTEGER                                            :: n_active, n_inactive, ispin, nspins, nao, handle, iounit 
       REAL(KIND=dp)                                      :: focc = 2.0_dp
 
       ! logicals
-      !logical                                            :: debug_forces = .False.
+      logical                                            :: debug_forces = .True.
 
       CALL timeset(routineN, handle)
 
