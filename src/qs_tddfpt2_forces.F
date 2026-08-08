@@ -1443,7 +1443,7 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
 
       ! matrices and structs
-      TYPE(cp_fm_type), POINTER                          :: work_ao_act, work_ao_inact 
+      TYPE(cp_fm_type)                                   :: work_ao_act, work_ao_inact 
       TYPE(cp_fm_type), dimension(:), intent(inout)      :: cp_mos_active
       TYPE(dbcsr_p_type), intent(inout), DIMENSION(:), &
                                                 optional :: matrix_hz
@@ -1471,7 +1471,7 @@ CONTAINS
 
 
          !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! H_Ii !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-         nullify(work_ao_act)
+         !nullify(work_ao_act)
          call cp_fm_create(            matrix         = work_ao_act, &
                                        matrix_struct  = gs_mos(ispin)%mos_active%matrix_struct) !ao x nact
 
