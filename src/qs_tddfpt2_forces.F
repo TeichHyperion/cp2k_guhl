@@ -281,7 +281,7 @@ CONTAINS
       if (io_unit > 0) then
          write(io_unit, *) " ################ RES ############## "
          write(io_unit, *) "Size of inact, act, oct:",  gs_mos(1)%nmo_inactive, gs_mos(1)%nmo_active, gs_mos(1)%nmo_occ
-         write(io_unit, *) "Size of R_tilde:" nrow_global_debug, ncol_global_debug
+         write(io_unit, *) "Size of R_tilde:", nrow_global_debug, ncol_global_debug
          write(io_unit, *) " ################ RES ############## "
 
       end if
