@@ -1498,9 +1498,16 @@ CONTAINS
       
          !!!!!!!!!!!!!!!!!!!!!!!!!!!!! RES !!!!!!!!!!!!!!!!!!!!!!!!!!
             ! Kernel contributions to R_Ii
-            if (iounit == 1) then
-               write(iounit, *) size(matrix_fx)
-            end if 
+            IF (iounit > 0) THEN
+               WRITE(iounit,'(A)') 'Entering RES branch in fhxc_force'
+               IF (ASSOCIATED(matrix_fx)) THEN
+                  WRITE(iounit,'(A,I10)') '   matrix_fx associated, size = ', SIZE(matrix_fx)
+               ELSE
+                  WRITE(iounit,'(A)') '   matrix_fx is NOT associated'
+               END IF
+               WRITE(iounit,'(A,I10)') '   ispin = ', ispin
+               FLUSH(iounit)
+            END IF
 
             if (associated(matrix_fx)  .and.  associated(matrix_hfx)) then
                call add_kernel_contributions_res(  qs_env            = qs_env,               &
@@ -2227,7 +2234,7 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
 
       ! matrices and structs
-      TYPE(cp_fm_type), POINTER                          :: work_ao_act, work_act_act, work_inact_act, &
+      TYPE(cp_fm_type)                                   :: work_ao_act, work_act_act, work_inact_act, &
                                                             work_ao_inact
       TYPE(cp_fm_type), intent(inout)                    :: cp_mos_active
       TYPE(cp_fm_type), intent(in)                       :: evect
@@ -2251,7 +2258,7 @@ CONTAINS
       CALL timeset(routineN, handle)
       
       !NULLIFY (work_ao_act, work_act_act, work_inact_act, work_ao_inact, &
-      !   work_act_act_struct, work_inact_act_struct)
+      !   work_act_act_struct, work_inact_act_struct) ! 
 
       CALL get_qs_env(qs_env        = qs_env,      & 
                       dft_control   = dft_control, & 
