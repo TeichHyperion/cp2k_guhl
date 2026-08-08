@@ -1547,8 +1547,24 @@ CONTAINS
 
 
             ! XC g (third functional derivative) contributions
+            IF (iounit > 0) THEN
+               WRITE(iounit,'(A)') 'DEBUG: Next up gxcfrom fhxc_force'
+               IF (ASSOCIATED(matrix_gx)) THEN
+                  WRITE(iounit,'(A,I10)') 'DEBUG:   matrix_gx associated, size = ', SIZE(matrix_gx)
+               ELSE
+                  WRITE(iounit,'(A)') 'DEBUG:   matrix_gx is NOT associated'
+               END IF
+               WRITE(iounit,'(A,I10)') 'DEBUG:   ispin = ', ispin
+               FLUSH(iounit)
+            END IF
+
                
-               call resp_gxc_res(qs_env, gs_mos, ex_env%cp_mos_active, matrix_gx)
+               call resp_gxc_res(qs_env         = qs_env,                      &
+                                 gs_mos         = gs_mos,                      &
+                                 cp_mos_active  = ex_env%cp_mos_active,        &
+                                 matrix_gx      = matrix_gx                    &
+                                 ispin          = ispin)
+
                call add_gxc_to_lambda_res(qs_env, gs_mos, matrix_gx, matrix_wx1)
          !!!!!!!!!!!!!!!!!!!!!!!!!!!!! END RES !!!!!!!!!!!!!!!!!!!!!!!!!!
 
@@ -2109,7 +2125,7 @@ CONTAINS
 !> \param gs_mos ...
 !> \param debug_forces default .False. , pass .True. for debugging. Currently does nothing
 ! **************************************************************************************************
-   SUBROUTINE resp_gxc_res(qs_env, gs_mos, cp_mos_active, matrix_gx)
+   SUBROUTINE resp_gxc_res(qs_env, gs_mos, cp_mos_active, matrix_gx, ispin)
       
       ! name and envs 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'resp_gxc_res'
@@ -2132,6 +2148,28 @@ CONTAINS
       !logical                                            :: debug_forces = .False.
 
       CALL timeset(routineN, handle)
+
+      logger => cp_get_default_logger()
+      IF (logger%para_env%is_source()) THEN
+         iounit = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
+      ELSE
+         iounit = -1
+      END IF
+
+
+      IF (debug_forces) then
+         IF (iounit > 0) THEN
+            WRITE(iounit,'(A)') 'DEBUG: Entering resp_gxc_res'
+            IF (present(matrix_gx)) THEN
+               WRITE(iounit,'(A)') 'DEBUG:   matrix_gx present'
+            ELSE
+               WRITE(iounit,'(A)') 'DEBUG:   matrix_gx is NOT associated'
+            END IF
+            WRITE(iounit,'(A,I10)') 'DEBUG:   ispin = ', ispin
+            FLUSH(iounit)
+         END IF
+      end if
+
 
       call get_qs_env(qs_env=qs_env , dft_control=dft_control)
       nspins   = dft_control%nspins
