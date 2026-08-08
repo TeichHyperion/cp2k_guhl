@@ -1548,7 +1548,7 @@ CONTAINS
 
             ! XC g (third functional derivative) contributions
             IF (iounit > 0) THEN
-               WRITE(iounit,'(A)') 'DEBUG: Next up gxcfrom fhxc_force'
+               WRITE(iounit,'(A)') 'DEBUG: Next up g_xc from fhxc_force'
                IF (ASSOCIATED(matrix_gx)) THEN
                   WRITE(iounit,'(A,I10)') 'DEBUG:   matrix_gx associated, size = ', SIZE(matrix_gx)
                ELSE
@@ -2146,7 +2146,8 @@ CONTAINS
       TYPE(cp_fm_type), POINTER, dimension(:), &
                                  intent(inout)           :: cp_mos_active
       ! integers and reals
-      INTEGER                                            :: n_active, n_inactive, ispin, nspins, nao, handle, iounit 
+      INTEGER                                            :: n_active, n_inactive, nspins, nao, handle, iounit 
+      INTEGER, intent(in)                                :: ispin
       REAL(KIND=dp)                                      :: focc = 2.0_dp
 
       ! logicals
@@ -2181,74 +2182,72 @@ CONTAINS
       call cp_fm_get_info(gs_mos(1)%mos_occ, nrow_global=nao) 
       if (nspins == 2) focc = 1.0_dp
 
-      do ispin = 1, nspins
 
-         !cp_mos_active(ispin) => ex_env%cp_mos_active(ispin)
+      !cp_mos_active(ispin) => ex_env%cp_mos_active(ispin)
 
-         n_active          = gs_mos(ispin)%nmo_active
-         n_inactive        = gs_mos(ispin)%nmo_inactive
+      n_active          = gs_mos(ispin)%nmo_active
+      n_inactive        = gs_mos(ispin)%nmo_inactive
 
-         ! nullify(gx_ao_act, gx_ao_inact)
-         !!!!!!!!!!!!!!!!!!!!!!!!!!!!! g_xc contribution to R_tilde !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-         ! this one just calculates the Dx Dx gxc conrtibution, contracted with active and inactive orbitals and adds it to R_tilde (mo_inact x mo_act). 
-         ! this can only contribute if g_iI /= g_Ii. usually this should not contribute!
-
-
-         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! +gxc_Ii !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-         call cp_fm_create(matrix         = gx_ao_act, &             !ao x mo_act
-                           matrix_struct  = gs_mos(ispin)%mos_active%matrix_struct)
+      ! nullify(gx_ao_act, gx_ao_inact)
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!! g_xc contribution to R_tilde !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      ! this one just calculates the Dx Dx gxc conrtibution, contracted with active and inactive orbitals and adds it to R_tilde (mo_inact x mo_act). 
+      ! this can only contribute if g_iI /= g_Ii. usually this should not contribute!
 
 
-         ! also we need to add gIi and subtract giI so . this should usually cancel but i would rather have it and deactivate it, then miss it 
-         CALL cp_dbcsr_sm_fm_multiply( matrix   = matrix_gx(ispin)%matrix, & !ao x ao
-                                       fm_in    = gs_mos(ispin)%mos_active,& !ao x mo_act
-                                       fm_out   = gx_ao_act,               & !ao x mo_act double check if this is the correct variable
-                                       ncol     = n_active,                &
-                                       alpha    = focc,                    &
-                                       beta     = 0.0_dp)
-
-         call parallel_gemm(  transa   = "T",                        &
-                              transb   = "N",                        &
-                              m        = n_inactive ,                &
-                              n        = n_active,                   &
-                              k        = nao  ,                      & !is k always the dim we kick out? yes!
-                              alpha    = 1.0_dp,                     & 
-                              matrix_a = gs_mos(ispin)%mos_inactive, & !ao x mo_inact -T> mo_inact x ao
-                              matrix_b = gx_ao_act,                  & !ao x mo_act  
-                              beta     = 1.0_dp,                     & 
-                              matrix_c = cp_mos_active(ispin))         ! this is inact x act and R_tilde is inact x act, yay !!
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! +gxc_Ii !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      call cp_fm_create(matrix         = gx_ao_act, &             !ao x mo_act
+                        matrix_struct  = gs_mos(ispin)%mos_active%matrix_struct)
 
 
-         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! -gxc_iI^T !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      ! also we need to add gIi and subtract giI so . this should usually cancel but i would rather have it and deactivate it, then miss it 
+      CALL cp_dbcsr_sm_fm_multiply( matrix   = matrix_gx(ispin)%matrix, & !ao x ao
+                                    fm_in    = gs_mos(ispin)%mos_active,& !ao x mo_act
+                                    fm_out   = gx_ao_act,               & !ao x mo_act double check if this is the correct variable
+                                    ncol     = n_active,                &
+                                    alpha    = focc,                    &
+                                    beta     = 0.0_dp)
 
-         call cp_fm_create(matrix         = gx_ao_inact,&            !ao x mo_inact
-                           matrix_struct  = gs_mos(ispin)%mos_inactive%matrix_struct)
+      call parallel_gemm(  transa   = "T",                        &
+                           transb   = "N",                        &
+                           m        = n_inactive ,                &
+                           n        = n_active,                   &
+                           k        = nao  ,                      & !is k always the dim we kick out? yes!
+                           alpha    = 1.0_dp,                     & 
+                           matrix_a = gs_mos(ispin)%mos_inactive, & !ao x mo_inact -T> mo_inact x ao
+                           matrix_b = gx_ao_act,                  & !ao x mo_act  
+                           beta     = 1.0_dp,                     & 
+                           matrix_c = cp_mos_active(ispin))         ! this is inact x act and R_tilde is inact x act, yay !!
 
 
-         ! gx_ao_inact = gxc x C_inact (ao x mo_inact)
-         CALL cp_dbcsr_sm_fm_multiply( matrix   = matrix_gx(ispin)%matrix,    & !ao x ao
-                                       fm_in    = gs_mos(ispin)%mos_inactive, & !ao x mo_inact
-                                       fm_out   = gx_ao_inact,                & !ao x mo_inact !R_tilde is mo_inact x mo_act!
-                                       ncol     = n_inactive,                 &
-                                       alpha    = focc,                       &
-                                       beta     = 0.0_dp)                       ! the matrix is created fresh so beta is 0
-         !R += gx_mui^T C_I
-         call parallel_gemm(  transa   = "T",                     &
-                              transb   = "N",                     &
-                              m        = n_inactive ,             &
-                              n        = n_active ,               &
-                              k        = nao  ,                   & ! is k always the dim we kick out? yes!
-                              alpha    = -1.0_dp,                  & 
-                              matrix_a = gx_ao_inact,             & !ao x mo_inact -T> mo_inact x ao
-                              matrix_b = gs_mos(ispin)%mos_active,& !ao x mo_act 
-                              beta     = 1.0_dp,                  & !beta = 1 makes it add the result to matrix_c  
-                              matrix_c = cp_mos_active(ispin) )     !mo_inact x mo_act      
-         call cp_fm_release(gx_ao_inact)
-         !!!!!!!!!!!!!!!!!!!!!!!!!!!!! END g_xc contribution to R_tilde !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! -gxc_iI^T !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-         call cp_fm_release(gx_ao_act)
+      call cp_fm_create(matrix         = gx_ao_inact,&            !ao x mo_inact
+                        matrix_struct  = gs_mos(ispin)%mos_inactive%matrix_struct)
 
-      end do 
+
+      ! gx_ao_inact = gxc x C_inact (ao x mo_inact)
+      CALL cp_dbcsr_sm_fm_multiply( matrix   = matrix_gx(ispin)%matrix,    & !ao x ao
+                                    fm_in    = gs_mos(ispin)%mos_inactive, & !ao x mo_inact
+                                    fm_out   = gx_ao_inact,                & !ao x mo_inact !R_tilde is mo_inact x mo_act!
+                                    ncol     = n_inactive,                 &
+                                    alpha    = focc,                       &
+                                    beta     = 0.0_dp)                       ! the matrix is created fresh so beta is 0
+      !R += gx_mui^T C_I
+      call parallel_gemm(  transa   = "T",                     &
+                           transb   = "N",                     &
+                           m        = n_inactive ,             &
+                           n        = n_active ,               &
+                           k        = nao  ,                   & ! is k always the dim we kick out? yes!
+                           alpha    = -1.0_dp,                  & 
+                           matrix_a = gx_ao_inact,             & !ao x mo_inact -T> mo_inact x ao
+                           matrix_b = gs_mos(ispin)%mos_active,& !ao x mo_act 
+                           beta     = 1.0_dp,                  & !beta = 1 makes it add the result to matrix_c  
+                           matrix_c = cp_mos_active(ispin) )     !mo_inact x mo_act      
+      call cp_fm_release(gx_ao_inact)
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!! END g_xc contribution to R_tilde !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+      call cp_fm_release(gx_ao_act)
+
             
       
 
