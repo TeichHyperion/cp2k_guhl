@@ -2145,7 +2145,7 @@ CONTAINS
          n_active          = gs_mos(ispin)%nmo_active
          n_inactive        = gs_mos(ispin)%nmo_inactive
 
-         nullify(gx_ao_act, gx_ao_inact)
+         ! nullify(gx_ao_act, gx_ao_inact)
          !!!!!!!!!!!!!!!!!!!!!!!!!!!!! g_xc contribution to R_tilde !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
          ! this one just calculates the Dx Dx gxc conrtibution, contracted with active and inactive orbitals and adds it to R_tilde (mo_inact x mo_act). 
          ! this can only contribute if g_iI /= g_Ii. usually this should not contribute!
@@ -2270,7 +2270,7 @@ CONTAINS
          IF (iounit > 0) THEN
             WRITE(iounit,'(A)') 'DEBUG: Entering add_kernel_contributions_res'
             IF (present(matrix_fx)) THEN
-               WRITE(iounit,'(A,I10)') 'DEBUG:   matrix_fx present, size = ', SIZE(matrix_fx)
+               WRITE(iounit,'(A)') 'DEBUG:   matrix_fx present'
             ELSE
                WRITE(iounit,'(A)') 'DEBUG:   matrix_fx is NOT associated'
             END IF
