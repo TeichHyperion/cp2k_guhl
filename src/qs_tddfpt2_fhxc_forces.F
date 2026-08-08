@@ -1562,7 +1562,7 @@ CONTAINS
                call resp_gxc_res(qs_env         = qs_env,                      &
                                  gs_mos         = gs_mos,                      &
                                  cp_mos_active  = ex_env%cp_mos_active,        &
-                                 matrix_gx      = matrix_gx                    &
+                                 matrix_gx      = matrix_gx,                   &
                                  ispin          = ispin)
 
                call add_gxc_to_lambda_res(qs_env, gs_mos, matrix_gx, matrix_wx1)
@@ -2161,7 +2161,7 @@ CONTAINS
       IF (debug_forces) then
          IF (iounit > 0) THEN
             WRITE(iounit,'(A)') 'DEBUG: Entering resp_gxc_res'
-            IF (present(matrix_gx)) THEN
+            IF (associated(matrix_gx)) THEN
                WRITE(iounit,'(A)') 'DEBUG:   matrix_gx present'
             ELSE
                WRITE(iounit,'(A)') 'DEBUG:   matrix_gx is NOT associated'
