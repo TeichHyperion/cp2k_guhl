@@ -1509,7 +1509,7 @@ CONTAINS
                                                 matrix_hx         = matrix_hx(ispin),     & 
                                                 matrix_fx         = matrix_fx(ispin),     & ! make these %matrix maybe
                                                 matrix_hfx        = matrix_hfx(ispin),    & 
-                                                matrix_hfx_asymm  = matrix_hfx_asymm(ispin)%matrix)
+                                                matrix_hfx_asymm  = matrix_hfx_asymm(ispin))
 
             ! XC g (third functional derivative) contributions
                
