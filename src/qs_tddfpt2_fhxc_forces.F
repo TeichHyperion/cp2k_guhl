@@ -2249,9 +2249,9 @@ CONTAINS
       ! last one seems unneccessary because the contributions are all calculated one by one and then added all at once later. 
       ! The way its currently done seems very inefficent. it keeps all matrices in memory for long and then does the contration seperately for each contribution?
       CALL timeset(routineN, handle)
-
-      NULLIFY (work_ao_act, work_act_act, work_inact_act, work_ao_inact, &
-         work_act_act_struct, work_inact_act_struct)
+      
+      !NULLIFY (work_ao_act, work_act_act, work_inact_act, work_ao_inact, &
+      !   work_act_act_struct, work_inact_act_struct)
 
       CALL get_qs_env(qs_env        = qs_env,      & 
                       dft_control   = dft_control, & 
