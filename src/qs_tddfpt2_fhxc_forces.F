@@ -2232,6 +2232,7 @@ CONTAINS
       TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
          POINTER                                         :: gs_mos
       TYPE(dft_control_type), POINTER                    :: dft_control
+      TYPE(cp_logger_type), POINTER                      :: logger
 
       ! matrices and structs
       TYPE(cp_fm_type)                                   :: work_ao_act, work_act_act, work_inact_act, &
@@ -2244,7 +2245,7 @@ CONTAINS
       TYPE(dbcsr_p_type), POINTER, dimension(:)          :: matrix_s
 
       ! integers and reals
-      INTEGER                                            :: n_active, n_inactive, nspins, nao, handle 
+      INTEGER                                            :: n_active, n_inactive, nspins, nao, handle, iounit
       INTEGER, intent(in)                                :: ispin
       real(kind=dp)                                      :: focc = 2.0_dp
 
@@ -2256,12 +2257,20 @@ CONTAINS
       ! last one seems unneccessary because the contributions are all calculated one by one and then added all at once later. 
       ! The way its currently done seems very inefficent. it keeps all matrices in memory for long and then does the contration seperately for each contribution?
       CALL timeset(routineN, handle)
-      
+
+      logger => cp_get_default_logger()
+      IF (logger%para_env%is_source()) THEN
+         iounit = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
+      ELSE
+         iounit = -1
+      END IF
+
+
       IF (debug_forces) then
          IF (iounit > 0) THEN
             WRITE(iounit,'(A)') 'DEBUG: Entering add_kernel_contributions_res'
-            IF (ASSOCIATED(matrix_fx)) THEN
-               WRITE(iounit,'(A,I10)') 'DEBUG:   matrix_fx associated, size = ', SIZE(matrix_fx)
+            IF (present(matrix_fx)) THEN
+               WRITE(iounit,'(A,I10)') 'DEBUG:   matrix_fx present, size = ', SIZE(matrix_fx)
             ELSE
                WRITE(iounit,'(A)') 'DEBUG:   matrix_fx is NOT associated'
             END IF
@@ -2270,8 +2279,8 @@ CONTAINS
          END IF
       end if
 
-      NULLIFY (work_ao_act, work_act_act, work_inact_act, work_ao_inact, &
-               work_act_act_struct, work_inact_act_struct) ! 
+      !NULLIFY (work_ao_act, work_act_act, work_inact_act, work_ao_inact, &
+      !         work_act_act_struct, work_inact_act_struct) ! 
 
 
 
