@@ -1494,6 +1494,7 @@ CONTAINS
          !
 
          if (do_res) then 
+
       
          !!!!!!!!!!!!!!!!!!!!!!!!!!!!! RES !!!!!!!!!!!!!!!!!!!!!!!!!!
             ! Kernel contributions to R_Ii
@@ -1501,15 +1502,42 @@ CONTAINS
                write(iounit, *) size(matrix_fx)
             end if 
 
-            call add_kernel_contributions_res(  qs_env            = qs_env,               &
-                                                gs_mos            = gs_mos,               &
-                                                ispin             = ispin,                &
-                                                cp_mos_active     = ex_env%cp_mos_active(ispin), & 
-                                                evect             = evect(ispin),         &
-                                                matrix_hx         = matrix_hx(ispin),     & 
-                                                matrix_fx         = matrix_fx(ispin),     & ! make these %matrix maybe
-                                                matrix_hfx        = matrix_hfx(ispin),    & 
-                                                matrix_hfx_asymm  = matrix_hfx_asymm(ispin))
+            if (associated(matrix_fx)  .and.  associated(matrix_hfx)) then
+               call add_kernel_contributions_res(  qs_env            = qs_env,               &
+                                                   gs_mos            = gs_mos,               &
+                                                   ispin             = ispin,                &
+                                                   cp_mos_active     = ex_env%cp_mos_active(ispin), & 
+                                                   evect             = evect(ispin),         &
+                                                   matrix_hx         = matrix_hx(ispin),     & 
+                                                   matrix_fx         = matrix_fx(ispin),     & 
+                                                   matrix_hfx        = matrix_hfx(ispin),    & 
+                                                   matrix_hfx_asymm  = matrix_hfx_asymm(ispin))
+            else if (associated(matrix_fx) .and. .not. associated(matrix_hfx)) then 
+               call add_kernel_contributions_res(  qs_env            = qs_env,               &
+                                                   gs_mos            = gs_mos,               &
+                                                   ispin             = ispin,                &
+                                                   cp_mos_active     = ex_env%cp_mos_active(ispin), & 
+                                                   evect             = evect(ispin),         &
+                                                   matrix_hx         = matrix_hx(ispin),     & 
+                                                   matrix_fx         = matrix_fx(ispin))
+            else if (.not. associated(matrix_fx) .and. associated(matrix_hfx))
+               call add_kernel_contributions_res(  qs_env            = qs_env,               &
+                                                   gs_mos            = gs_mos,               &
+                                                   ispin             = ispin,                &
+                                                   cp_mos_active     = ex_env%cp_mos_active(ispin), & 
+                                                   evect             = evect(ispin),         &
+                                                   matrix_hx         = matrix_hx(ispin),     & 
+                                                   matrix_hfx        = matrix_hfx(ispin),    & 
+                                                   matrix_hfx_asymm  = matrix_hfx_asymm(ispin))
+            else if (.not. associated(matrix_fx) .and. .not. associated(matrix_hfx))
+               call add_kernel_contributions_res(  qs_env            = qs_env,               &
+                                                   gs_mos            = gs_mos,               &
+                                                   ispin             = ispin,                &
+                                                   cp_mos_active     = ex_env%cp_mos_active(ispin), & 
+                                                   evect             = evect(ispin),         &
+                                                   matrix_hx         = matrix_hx(ispin))
+            end if 
+
 
             ! XC g (third functional derivative) contributions
                
