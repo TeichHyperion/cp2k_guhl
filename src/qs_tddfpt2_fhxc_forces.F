@@ -1568,7 +1568,7 @@ CONTAINS
                call add_gxc_to_lambda_res(qs_env      = qs_env,      &
                                           gs_mos      = gs_mos,      &
                                           matrix_gx   = matrix_gx,   &
-                                          martrix_wx1 = matrix_wx1)
+                                          matrix_wx1  = matrix_wx1)
             end if
          !!!!!!!!!!!!!!!!!!!!!!!!!!!!! END RES !!!!!!!!!!!!!!!!!!!!!!!!!!
 
