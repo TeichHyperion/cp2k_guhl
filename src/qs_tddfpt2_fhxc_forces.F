@@ -202,7 +202,7 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER :: matrix_fx, matrix_gx, matrix_hfx, &
          matrix_hfx_admm, matrix_hfx_admm_asymm, matrix_hfx_asymm, matrix_hx, matrix_p, &
          matrix_p_admm, matrix_px1, matrix_px1_admm, matrix_px1_admm_asymm, matrix_px1_asymm, &
-         matrix_s, matrix_s_aux_fit, matrix_wx1, mdum, mfx, mgx
+         matrix_s, matrix_s_aux_fit, matrix_wx1, mdum, mfx, mgx, d_tilde_z
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: mhe, mpe, mpga
       TYPE(dbcsr_type), POINTER                          :: dbwork, dbwork_asymm
       TYPE(dft_control_type), POINTER                    :: dft_control
@@ -1339,7 +1339,9 @@ CONTAINS
 
       CALL get_qs_env(qs_env, sab_orb=sab_orb)
       NULLIFY (matrix_wx1)
+      NULLIFY(d_tilde_z)
       CALL dbcsr_allocate_matrix_set(matrix_wx1, nspins)
+
       cpmos => ex_env%cpmos
       focc = 2.0_dp
       IF (nspins == 2) focc = 1.0_dp
@@ -1571,6 +1573,19 @@ CONTAINS
                                           matrix_wx1  = matrix_wx1,  &
                                           ispin       = ispin)
             end if
+
+            ! at this point cp_mos_active should contain H[T], g_xc and K. Now we do the energy weighting to get Z_tilde
+            call tddfpt_R_energy_weighting(  qs_env         =  qs_env, &
+                                             gs_mos         =  gs_mos, & 
+                                             cp_mos_active  =  ex_env%cp_mos_active)
+
+            ! with this the Z_tilde vector should be completly assembled 
+            ! It can now be used to to build the inactive transition density matrix(?) D_tilde^Z ! moved to right after tddfpt_forces 
+
+            !call tddfpt_build_inactive_trans_dens(qs_env, gs_mos, ex_env%cp_mos_active, d_tilde_z, ispin)
+
+
+
          !!!!!!!!!!!!!!!!!!!!!!!!!!!!! END RES !!!!!!!!!!!!!!!!!!!!!!!!!!
 
          end if
@@ -2121,6 +2136,244 @@ CONTAINS
    END SUBROUTINE stda_force
 
 ! **************************************************************************************************
+
+
+! **************************************************************************************************
+!> \brief Contracts Energy weighted \tilde{R_Ii} (aka Z_tilde) with the MOs to generate D_tilde_munu^Z as 1/2 sum_K (Z_muK C_nuK^T + C_muK Z_nuK^T) . 
+!> \brief 
+!> \param qs_env ...
+!> \param ex_env holds cp_mos_active(nspins) aka \tilde{R_Ii} 
+!> \param gs_mos ...
+!> \param debug_forces default .False. , pass .True. for debugging. Currently does nothing
+! **************************************************************************************************
+   SUBROUTINE tddfpt_build_inactive_trans_dens(qs_env, gs_mos, cp_mos_active, d_tilde_z)
+      
+      ! name and envs 
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'tddfpt_build_inactive_trans_dens'
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
+         POINTER                                         :: gs_mos
+      TYPE(dft_control_type), POINTER                    :: dft_control
+      TYPE(cp_logger_type), POINTER                      :: logger
+
+      ! matrices and structs
+      TYPE(cp_fm_type)                                   :: work_ao_ao, work_ao_inact
+      TYPE(cp_fm_struct_type)                            :: fm_struct_ao_ao
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER, &
+                                    intent(inout)        :: d_tilde_z
+      TYPE(cp_fm_type), POINTER, dimension(:), &
+                                 intent(inout)           :: cp_mos_active
+
+      ! integers and reals
+      INTEGER                                            :: n_active, n_inactive, nspins, nao, handle, iounit 
+      INTEGER                                            :: ispin
+      REAL(KIND=dp)                                      :: focc = 2.0_dp
+
+      ! logicals
+      logical                                            :: debug_forces = .True.
+
+      CALL timeset(routineN, handle)
+
+      logger => cp_get_default_logger()
+      IF (logger%para_env%is_source()) THEN
+         iounit = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
+      ELSE
+         iounit = -1
+      END IF
+
+
+      IF (debug_forces) then
+         IF (iounit > 0) THEN
+            WRITE(iounit,'(A)') 'DEBUG: Entering tddfpt_build_inactive_trans_dens'
+            FLUSH(iounit)
+         END IF
+      end if
+
+
+      call get_qs_env(qs_env=qs_env , dft_control=dft_control, matrix_s=matrix_s)
+      nspins   = dft_control%nspins
+      call cp_fm_get_info(gs_mos(1)%mos_occ, nrow_global=nao) 
+      if (nspins == 2) focc = 1.0_dp
+
+
+      do ispin = 1, nspins
+         n_active          = gs_mos(ispin)%nmo_active
+         n_inactive        = gs_mos(ispin)%nmo_inactive
+
+         ! According to the Paper i need Z_tilde_muK . So step one: Contract Z with MOs
+
+
+         call cp_fm_create(matrix         = work_ao_inact, &
+                           matrix_struct  = gs_mos(ispin)%mos_inactive%matrix_struct)
+
+         call cp_fm_struct_create(  fm_struct         = fm_struct_ao_ao, & 
+                                    template_fmstruct = gs_mos(ispin)%mos_active%matrix_struct, & 
+                                    ncol_global       = nao, &
+                                    nrow_global       = nao)
+         call cp_fm_create(matrix         = work_ao_ao, &
+                           matrix_struct  = fm_struct_ao_ao)
+         call cp_fm_struct_release(fm_struct_ao_ao)
+
+
+         call parallel_gemm(  transa   = "N",                        &
+                              transb   = "T",                        &
+                              m        = nao  ,                      &
+                              n        = n_inactive,                 &
+                              k        = n_active ,                  & !is k always the dim we kick out? yes!
+                              alpha    = 1.0_dp,                     & 
+                              matrix_a = gs_mos(ispin)%mos_active ,  & !ao x mo_act
+                              matrix_b = cp_mos_active(ispin) ,      & !mo_inact x mo_act  -T> mo_act x mo_inact  
+                              beta     = 0.0_dp,                     & 
+                              matrix_c = work_ao_inact)                ! ao x mo_inact Contains Z_muK
+
+         ! now the first half of the Contraction. Actually this results in an ao x ao matrix and should be sparse. how do i get this into DBCSR?
+         call parallel_gemm(  transa   = "N",                        &
+                              transb   = "T",                        &
+                              m        = nao  ,                      &
+                              n        = nao,                        &
+                              k        = n_inactive ,                & 
+                              alpha    = 0.5_dp,                     & 
+                              matrix_a = work_ao_inact ,             & !ao x mo_inact
+                              matrix_b = gs_mos(ispin)%mos_inactive ,& !ao x mo_inact  -T> mo_inact x ao  
+                              beta     = 0.0_dp,                     & 
+                              matrix_c = work_ao_ao)                   !ao x ao 
+
+         ! now the second half for symmetrization
+
+         call parallel_gemm(  transa   = "N",                        &
+                              transb   = "T",                        &
+                              m        = nao  ,                      &
+                              n        = nao,                        &
+                              k        = n_inactive ,                & 
+                              alpha    = 0.5_dp,                     & 
+                              matrix_a = gs_mos(ispin)%mos_inactive ,& !ao x mo_inact
+                              matrix_b = work_ao_inact ,             & !ao x mo_inact  -T> mo_inact x ao  
+                              beta     = 1.0_dp,                     & 
+                              matrix_c = work_ao_ao)                   !ao x ao 
+
+         call cp_fm_release(work_ao_inact)
+
+
+         ! since the second part is just for symmetrisation. it might be faster 
+         ! to use cp_dbcsr_plus_fm_fm_t or smth
+         ! move and symmetrize ao x ao matrix to DBCSR 
+
+         ALLOCATE (d_tilde_z(ispin)%matrix)
+         call dbcsr_create(matrix   = d_tilde_z(ispin)%matrix, &
+                           name     = 'd_tilde_z', &
+                           template = matrix_s(1)%matrix)
+
+         !call dbcsr_set(matrix   = d_tilde_z(ispin)%matrix, & 
+         !               alpha    = 0.0_dp)
+
+         !call cp_dbcsr_plus_fm_fm_t(sparse_matrix  = d_tilde_z,     &
+         !                           matrix_v       = work_ao_inact, & 
+         !                           keep_sparsity  = .True.,        &
+         !                           symmetry_mode  = 1)
+
+
+         call copy_fm_to_dbcsr(  fm             = work_ao_ao, & 
+                                 matrix         = d_tilde_z(ispin)%matrix, &
+                                 keep_sparsity  = .True.)
+
+         call cp_fm_release(work_ao_ao)
+      end do 
+      
+            
+      
+
+      CALL timestop(handle)
+   end SUBROUTINE tddfpt_build_inactive_trans_dens  
+
+   
+! **************************************************************************************************
+!> \brief ...
+!> \param qs_env ...
+!> \param matrix_pe ...
+!> \param gs_mos ...
+!> \param matrix_hz ...
+!> \param cpmos ...
+! **************************************************************************************************
+   SUBROUTINE tddfpt_R_energy_weighting(qs_env, gs_mos, cp_mos_active)
+      !name and envs 
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'tddfpt_R_energy_weighting'
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
+         POINTER                                         :: gs_mos
+      TYPE(dft_control_type), POINTER                    :: dft_control
+
+      ! matrices and structs
+      TYPE(cp_fm_type), dimension(:), intent(inout)      :: cp_mos_active
+      real(kind=dp), allocatable                         :: R_global(:,:)
+
+      ! integers and reals
+      INTEGER                                            :: n_active, n_inactive, nspins, nao, handle,&
+                                                            index_active, index_inactive, i_act, i_inact
+      INTEGER                                            :: ispin
+      real(kind=dp)                                      :: focc = 2.0_dp, e_active, e_inactive, e_diff
+
+      logical                                            :: has_degeneracy = .false.
+
+
+      ! i have cpmos_active (? maybe) 
+      ! double check if gxc and K have been added at this point or if this needs to move to fhxc_force
+      !now what i need is 
+      ! R_Ii/(e_i-e_I) 
+      ! why are there no distributed element wise sums?
+
+      ! this is probably not good because its not parallel
+      CALL timeset(routineN, handle)
+
+      CALL get_qs_env(  qs_env        = qs_env,  & 
+                        dft_control   = dft_control)
+      call cp_fm_get_info(gs_mos(1)%mos_occ, nrow_global=nao)
+      nspins      = dft_control%nspins
+
+      if (nspins == 1 ) focc = 1
+
+
+      do ispin = 1, nspins
+
+         n_inactive  = gs_mos(ispin)%nmo_inactive
+         n_active    = gs_mos(ispin)%nmo_active
+         
+         ALLOCATE(R_global(n_inactive, n_active))
+         call cp_fm_get_submatrix(cp_mos_active(ispin), R_global)
+
+         do i_act = 1, n_active
+            index_active   = gs_mos(ispin)%index_active(i_act)
+            e_active       = gs_mos(ispin)%evals_occ(index_active)
+            do i_inact = 1, n_inactive
+               index_inactive = gs_mos(ispin)%index_inactive(i_inact)
+               e_inactive     = gs_mos(ispin)%evals_occ(index_inactive)
+
+               e_diff         = e_active - e_inactive
+
+               if (abs(e_diff) < 1.0E-10_dp) then ! or whatever
+                  has_degeneracy = .True.
+                  R_global(i_inact, i_act) = 0.0_dp  ! is this legal? or maybe just skip the wheighting?
+               else 
+                  R_global(i_inact, i_act) = R_global(i_inact, i_act) / e_diff
+               end if 
+            end do 
+         end do
+
+         CALL cp_fm_set_submatrix(cp_mos_active(ispin), R_global)
+         deallocate(R_global)
+
+      end do
+
+      if ( has_degeneracy ) then
+         call cp_warn(__LOCATION__, "near degeneracy or degeneracy detected between inactive and act orbitals")
+      end if
+
+      CALL timestop(handle)
+
+   END SUBROUTINE tddfpt_R_energy_weighting
+
+
+
 
 ! **************************************************************************************************
 !> \brief Calculates the g^xc contributions to the \tilde{R_Ii} vector. 

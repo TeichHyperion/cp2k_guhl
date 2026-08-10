@@ -386,6 +386,69 @@ CONTAINS
       END IF
       ! TDA forces. Calculates and adds all missing terms for the response vector, Eq. 49.
       CALL tddfpt_forces(qs_env, ex_env, gs_mos, kernel_env, sub_env, work_matrices)
+      ! After this (or maybe even after resvec2 already) i think T is never used again on its own, 
+      ! but always with D^Z and D_tilde^Z so we can add D_tilde^Z here via a second resvec2 call 
+
+      if (do_res) then 
+         if (dft_control%do_admm) then
+            call cp_abort(__LOCATION__, "RES and ADMM not implemnted yet!")
+         end if 
+
+         NULLIFY(H_dz_res, d_tilde_z)
+
+         CALL dbcsr_allocate_matrix_set(H_dz_res, nspins)   
+
+         DO ispin = 1, nspins
+            ALLOCATE(H_dz_res(ispin)%matrix)
+            CALL dbcsr_create(matrix   = H_dz_res(ispin)%matrix, &
+                              template = matrix_s(1)%matrix)
+            CALL dbcsr_set(matrix = H_dz_res(ispin)%matrix, alpha = 0.0_dp)
+         END DO
+
+         ALLOCATE(cpmos_tilde(nspins))
+         DO ispin = 1, nspins
+            CALL cp_fm_get_info(gs_mos(ispin)%mos_occ, matrix_struct=matrix_struct)
+            CALL cp_fm_create(cpmos_tilde(ispin), matrix_struct)
+            CALL cp_fm_set_all(cpmos_tilde(ispin), 0.0_dp)
+         END DO
+
+         CALL dbcsr_allocate_matrix_set(d_tilde_z, nspins)   
+
+         call tddfpt_build_inactive_trans_dens( qs_env         = qs_env,               &
+                                                gs_mos         = gs_mos,               &
+                                                cp_mos_active  = ex_env%cp_mos_active, &
+                                                d_tilde_z      = d_tilde_z)
+
+         call tddfpt_resvec2( qs_env         = qs_env,                  &
+                              matrix_pe      = d_tilde_z,               & !the inactive unrelaxed dens \tilde{D}^Z
+                              matrix_pe_admm = ex_env%matrix_pe_admm,   & !todo
+                              gs_mos         = gs_mos,                  &
+                              matrix_hz      = H_dz_res,                & ! this should be H_munu[\tilde{D}^Z]
+                              cpmos          = cpmos_tilde )              ! and this H_mui[\tilde{D}^Z]
+
+         ! 4. Accumulate H[D_tilde^Z] and cpmos_tilde into ex_env%matrix_hz and ex_env%cpmos
+         DO ispin = 1, nspins
+            ! Add H[D_tilde^Z] to matrix_hz (used later for response_force)
+            CALL dbcsr_add(ex_env%matrix_hz(ispin)%matrix, H_dz_res(ispin)%matrix, &
+                           alpha_scalar=1.0_dp, beta_scalar=1.0_dp)
+
+            ! Add H_mui[D_tilde^Z] to ex_env%cpmos (RHS vector R_mui)
+            CALL cp_fm_geadd(1.0_dp, "N", cpmos_tilde(ispin), 1.0_dp, ex_env%cpmos(ispin))
+
+            ! Add D_tilde^Z to ex_env%matrix_pe (DT = T + D_tilde^Z)
+            CALL dbcsr_add(ex_env%matrix_pe(ispin)%matrix, d_tilde_z(ispin)%matrix, &
+               alpha_scalar=1.0_dp, beta_scalar=1.0_dp)
+            ! Release cpmos_tilde, because H_mui[\tilde{D}^Z] is never needed on its own
+            CALL cp_fm_release(cpmos_tilde(ispin))
+         END DO
+
+         ! 5. Clean up temporary memory
+         DEALLOCATE(cpmos_tilde)
+         CALL dbcsr_deallocate_matrix_set(H_dz_res)
+         CALL dbcsr_deallocate_matrix_set(d_tilde_z)
+
+      end if
+
       ! Rotate res vector cpmos into original frame of occupied orbitals.
       CALL tddfpt_resvec3(qs_env, ex_env%cpmos, work_matrices)
 
@@ -455,7 +518,9 @@ CONTAINS
                                     ex_env%vh_rspace)
          CALL tddfpt_force_direct(qs_env, ex_env, gs_mos, kernel_env, sub_env, &
                                   work_matrices, debug_forces)
-         call tddfpt_R_energy_weighting(qs_env, gs_mos, ex_env%cp_mos_active)
+         !call tddfpt_R_energy_weighting(qs_env, gs_mos, ex_env%cp_mos_active)
+
+
       END IF
       !
       ! add TD and KS forces
@@ -1415,6 +1480,7 @@ CONTAINS
 
       if (present(cp_mos_active)) then 
          CALL tddfpt_add_H_T_res(qs_env, gs_mos, matrix_hz, cp_mos_active)
+         
       end if
          !  notiz für später später : P in responce force P = D^Z +T + D_tilde^Z
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! END RES !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -1579,91 +1645,6 @@ CONTAINS
 
       CALL timestop(handle)
    END SUBROUTINE tddfpt_add_H_T_res
-
-! **************************************************************************************************
-!> \brief ...
-!> \param qs_env ...
-!> \param matrix_pe ...
-!> \param gs_mos ...
-!> \param matrix_hz ...
-!> \param cpmos ...
-! **************************************************************************************************
-   SUBROUTINE tddfpt_R_energy_weighting(qs_env, gs_mos, cp_mos_active)
-      !name and envs 
-      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'tddfpt_R_energy_weighting'
-      TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
-         POINTER                                         :: gs_mos
-      TYPE(dft_control_type), POINTER                    :: dft_control
-
-      ! matrices and structs
-      TYPE(cp_fm_type), dimension(:), intent(inout)      :: cp_mos_active
-      real(kind=dp), allocatable                         :: R_global(:,:)
-
-      ! integers and reals
-      INTEGER                                            :: n_active, n_inactive, nspins, nao, handle,&
-                                                            index_active, index_inactive, i_act, i_inact
-      INTEGER                                            :: ispin
-      real(kind=dp)                                      :: focc = 2.0_dp, e_active, e_inactive, e_diff
-
-      logical                                            :: has_degeneracy = .false.
-
-
-      ! i have cpmos_active (? maybe) 
-      ! double check if gxc and K have been added at this point or if this needs to move to fhxc_force
-      !now what i need is 
-      ! R_Ii/(e_i-e_I) 
-      ! why are there no distributed element wise sums?
-
-      ! this is probably not good because its not parallel
-      CALL timeset(routineN, handle)
-
-      CALL get_qs_env(  qs_env        = qs_env,  & 
-                        dft_control   = dft_control)
-      call cp_fm_get_info(gs_mos(1)%mos_occ, nrow_global=nao)
-      nspins      = dft_control%nspins
-
-      if (nspins == 1 ) focc = 1
-
-
-      do ispin = 1, nspins
-
-         n_inactive  = gs_mos(ispin)%nmo_inactive
-         n_active    = gs_mos(ispin)%nmo_active
-         
-         ALLOCATE(R_global(n_inactive, n_active))
-         call cp_fm_get_submatrix(cp_mos_active(ispin), R_global)
-
-         do i_act = 1, n_active
-            index_active   = gs_mos(ispin)%index_active(i_act)
-            e_active       = gs_mos(ispin)%evals_occ(index_active)
-            do i_inact = 1, n_inactive
-               index_inactive = gs_mos(ispin)%index_inactive(i_inact)
-               e_inactive     = gs_mos(ispin)%evals_occ(index_inactive)
-
-               e_diff         = e_active - e_inactive
-
-               if (abs(e_diff) < 1.0E-10_dp) then ! or whatever
-                  has_degeneracy = .True.
-                  R_global(i_inact, i_act) = 0.0_dp  ! is this legal? or maybe just skip the wheighting?
-               else 
-                  R_global(i_inact, i_act) = R_global(i_inact, i_act) / e_diff
-               end if 
-            end do 
-         end do
-
-         CALL cp_fm_set_submatrix(cp_mos_active(ispin), R_global)
-         deallocate(R_global)
-
-      end do
-
-      if ( has_degeneracy ) then
-         call cp_warn(__LOCATION__, "near degeneracy or degeneracy detected between inactive and act orbitals")
-      end if
-
-      CALL timestop(handle)
-
-   END SUBROUTINE tddfpt_R_energy_weighting
 
 
 
