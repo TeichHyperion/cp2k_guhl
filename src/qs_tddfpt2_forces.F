@@ -28,6 +28,7 @@ MODULE qs_tddfpt2_forces
                                               cp_dbcsr_sm_fm_multiply,&
                                               dbcsr_allocate_matrix_set,&
                                               dbcsr_deallocate_matrix_set
+   USE cp_fm_basic_linalg,              ONLY: cp_fm_geadd
    USE cp_fm_struct,                    ONLY: cp_fm_struct_create,&
                                               cp_fm_struct_release,&
                                               cp_fm_struct_type
@@ -396,23 +397,28 @@ CONTAINS
 
          NULLIFY(H_dz_res, d_tilde_z)
 
-         CALL dbcsr_allocate_matrix_set(H_dz_res, nspins)   
+         CALL dbcsr_allocate_matrix_set(H_dz_res, nspins) !will hold H_munu[\tilde{D}^Z
 
          DO ispin = 1, nspins
-            ALLOCATE(H_dz_res(ispin)%matrix)
+            ALLOCATE(H_dz_res(ispin)%matrix) 
             CALL dbcsr_create(matrix   = H_dz_res(ispin)%matrix, &
                               template = matrix_s(1)%matrix)
-            CALL dbcsr_set(matrix = H_dz_res(ispin)%matrix, alpha = 0.0_dp)
+            CALL dbcsr_set(matrix   = H_dz_res(ispin)%matrix, &
+                           alpha    = 0.0_dp)
          END DO
 
-         ALLOCATE(cpmos_tilde(nspins))
+         ALLOCATE(cpmos_tilde(nspins)) ! will hold H_mui[\tilde{D}^Z]
          DO ispin = 1, nspins
-            CALL cp_fm_get_info(gs_mos(ispin)%mos_occ, matrix_struct=matrix_struct)
-            CALL cp_fm_create(cpmos_tilde(ispin), matrix_struct)
-            CALL cp_fm_set_all(cpmos_tilde(ispin), 0.0_dp)
+            CALL cp_fm_get_info( matrix         = gs_mos(ispin)%mos_occ,   &
+                                 matrix_struct  = matrix_struct)
+            CALL cp_fm_create(   matrix         = cpmos_tilde(ispin),      &
+                                 matrix_struct  = matrix_struct)
+            CALL cp_fm_set_all(  matrix         = cpmos_tilde(ispin),      &
+                                 alpha          = 0.0_dp)
          END DO
 
-         CALL dbcsr_allocate_matrix_set(d_tilde_z, nspins)   
+         CALL dbcsr_allocate_matrix_set(d_tilde_z, nspins) ! \tilde{D}^Z 
+         ! moved this out from tddfpt_build_inactive_trans_dens for easy overview of allocated memory
 
          call tddfpt_build_inactive_trans_dens( qs_env         = qs_env,               &
                                                 gs_mos         = gs_mos,               &
@@ -429,16 +435,25 @@ CONTAINS
          ! 4. Accumulate H[D_tilde^Z] and cpmos_tilde into ex_env%matrix_hz and ex_env%cpmos
          DO ispin = 1, nspins
             ! Add H[D_tilde^Z] to matrix_hz (used later for response_force)
-            CALL dbcsr_add(ex_env%matrix_hz(ispin)%matrix, H_dz_res(ispin)%matrix, &
-                           alpha_scalar=1.0_dp, beta_scalar=1.0_dp)
+            CALL dbcsr_add(matrix_a       = ex_env%matrix_hz(ispin)%matrix,   &
+                           matrix_b       = H_dz_res(ispin)%matrix,           &
+                           alpha_scalar   = 1.0_dp,                           &
+                           beta_scalar    = 1.0_dp)
 
-            ! Add H_mui[D_tilde^Z] to ex_env%cpmos (RHS vector R_mui)
-            CALL cp_fm_geadd(1.0_dp, "N", cpmos_tilde(ispin), 1.0_dp, ex_env%cpmos(ispin))
+            ! Add H_mui[D_tilde^Z] to ex_env%cpmos (the full/active part R_mui)
+            CALL cp_fm_geadd( alpha    = 1.0_dp,               & ! cant this just be a cp_fm_scale_and_add???
+                              trans    = "N",                  &
+                              matrix_a = cpmos_tilde(ispin),   &
+                              beta     = 1.0_dp,               &
+                              matrix_b = ex_env%cpmos(ispin))
 
-            ! Add D_tilde^Z to ex_env%matrix_pe (DT = T + D_tilde^Z)
-            CALL dbcsr_add(ex_env%matrix_pe(ispin)%matrix, d_tilde_z(ispin)%matrix, &
-               alpha_scalar=1.0_dp, beta_scalar=1.0_dp)
-            ! Release cpmos_tilde, because H_mui[\tilde{D}^Z] is never needed on its own
+            ! Add D_tilde^Z to ex_env%matrix_pe (DT = T + D_tilde^Z) ! after response equation D^Z should also be added to this. Double check !!!
+            CALL dbcsr_add(matrix_a       = ex_env%matrix_pe(ispin)%matrix,   &
+                           matrix_b       = d_tilde_z(ispin)%matrix,          &
+                           alpha_scalar   = 1.0_dp,                           &
+                           beta_scalar    = 1.0_dp)
+                           
+            ! Release cpmos_tilde, because H_mui[\tilde{D}^Z] is never needed on its own again
             CALL cp_fm_release(cpmos_tilde(ispin))
          END DO
 
