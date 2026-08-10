@@ -2267,7 +2267,7 @@ CONTAINS
          !call dbcsr_set(matrix   = d_tilde_z(ispin)%matrix, & 
          !               alpha    = 0.0_dp)
 
-         !call cp_dbcsr_plus_fm_fm_t(sparse_matrix  = d_tilde_z,     &
+         !call cp_dbcsr_plus_fm_fm_t(sparse_matrix  = d_tilde_z,     & ! does this give me the same result as the two gemms up there?
          !                           matrix_v       = work_ao_inact, & 
          !                           keep_sparsity  = .True.,        &
          !                           symmetry_mode  = 1)

@@ -390,6 +390,7 @@ CONTAINS
       ! After this (or maybe even after resvec2 already) i think T is never used again on its own, 
       ! but always with D^Z and D_tilde^Z so we can add D_tilde^Z here via a second resvec2 call 
 
+      ! probably move this into a subroutine to keep things simple here
       if (do_res) then 
          if (dft_control%do_admm) then
             call cp_abort(__LOCATION__, "RES and ADMM not implemnted yet!")
@@ -452,7 +453,7 @@ CONTAINS
                            matrix_b       = d_tilde_z(ispin)%matrix,          &
                            alpha_scalar   = 1.0_dp,                           &
                            beta_scalar    = 1.0_dp)
-                           
+
             ! Release cpmos_tilde, because H_mui[\tilde{D}^Z] is never needed on its own again
             CALL cp_fm_release(cpmos_tilde(ispin))
          END DO
