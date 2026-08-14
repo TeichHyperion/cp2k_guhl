@@ -46,7 +46,8 @@ MODULE qs_tddfpt2_fhxc_forces
                                               cp_fm_release,&
                                               cp_fm_to_fm,&
                                               cp_fm_type,&
-                                              cp_fm_vectorssum
+                                              cp_fm_vectorssum,&
+                                              cp_fm_get_submatrix
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_get_default_unit_nr,&
                                               cp_logger_type
