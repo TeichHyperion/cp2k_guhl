@@ -392,77 +392,7 @@ CONTAINS
 
       ! probably move this into a subroutine to keep things simple here
       if (do_res) then 
-         if (dft_control%do_admm) then
-            call cp_abort(__LOCATION__, "RES and ADMM not implemnted yet!")
-         end if 
-
-         NULLIFY(H_dz_res, d_tilde_z)
-
-         CALL dbcsr_allocate_matrix_set(H_dz_res, nspins) !will hold H_munu[\tilde{D}^Z
-
-         DO ispin = 1, nspins
-            ALLOCATE(H_dz_res(ispin)%matrix) 
-            CALL dbcsr_create(matrix   = H_dz_res(ispin)%matrix, &
-                              template = matrix_s(1)%matrix)
-            CALL dbcsr_set(matrix   = H_dz_res(ispin)%matrix, &
-                           alpha    = 0.0_dp)
-         END DO
-
-         ALLOCATE(cpmos_tilde(nspins)) ! will hold H_mui[\tilde{D}^Z]
-         DO ispin = 1, nspins
-            CALL cp_fm_get_info( matrix         = gs_mos(ispin)%mos_occ,   &
-                                 matrix_struct  = matrix_struct)
-            CALL cp_fm_create(   matrix         = cpmos_tilde(ispin),      &
-                                 matrix_struct  = matrix_struct)
-            CALL cp_fm_set_all(  matrix         = cpmos_tilde(ispin),      &
-                                 alpha          = 0.0_dp)
-         END DO
-
-         CALL dbcsr_allocate_matrix_set(d_tilde_z, nspins) ! \tilde{D}^Z 
-         ! moved this out from tddfpt_build_inactive_trans_dens for easy overview of allocated memory
-
-         call tddfpt_build_inactive_trans_dens( qs_env         = qs_env,               &
-                                                gs_mos         = gs_mos,               &
-                                                cp_mos_active  = ex_env%cp_mos_active, &
-                                                d_tilde_z      = d_tilde_z)
-
-         call tddfpt_resvec2( qs_env         = qs_env,                  &
-                              matrix_pe      = d_tilde_z,               & !the inactive unrelaxed dens \tilde{D}^Z
-                              matrix_pe_admm = ex_env%matrix_pe_admm,   & !todo
-                              gs_mos         = gs_mos,                  &
-                              matrix_hz      = H_dz_res,                & ! this should be H_munu[\tilde{D}^Z]
-                              cpmos          = cpmos_tilde )              ! and this H_mui[\tilde{D}^Z]
-
-         ! 4. Accumulate H[D_tilde^Z] and cpmos_tilde into ex_env%matrix_hz and ex_env%cpmos
-         DO ispin = 1, nspins
-            ! Add H[D_tilde^Z] to matrix_hz (used later for response_force)
-            CALL dbcsr_add(matrix_a       = ex_env%matrix_hz(ispin)%matrix,   &
-                           matrix_b       = H_dz_res(ispin)%matrix,           &
-                           alpha_scalar   = 1.0_dp,                           &
-                           beta_scalar    = 1.0_dp)
-
-            ! Add H_mui[D_tilde^Z] to ex_env%cpmos (the full/active part R_mui)
-            CALL cp_fm_geadd( alpha    = 1.0_dp,               & ! cant this just be a cp_fm_scale_and_add???
-                              trans    = "N",                  &
-                              matrix_a = cpmos_tilde(ispin),   &
-                              beta     = 1.0_dp,               &
-                              matrix_b = ex_env%cpmos(ispin))
-
-            ! Add D_tilde^Z to ex_env%matrix_pe (DT = T + D_tilde^Z) ! after response equation D^Z should also be added to this. Double check !!!
-            CALL dbcsr_add(matrix_a       = ex_env%matrix_pe(ispin)%matrix,   &
-                           matrix_b       = d_tilde_z(ispin)%matrix,          &
-                           alpha_scalar   = 1.0_dp,                           &
-                           beta_scalar    = 1.0_dp)
-
-            ! Release cpmos_tilde, because H_mui[\tilde{D}^Z] is never needed on its own again
-            CALL cp_fm_release(cpmos_tilde(ispin))
-         END DO
-
-         ! 5. Clean up temporary memory
-         DEALLOCATE(cpmos_tilde)
-         CALL dbcsr_deallocate_matrix_set(H_dz_res)
-         CALL dbcsr_deallocate_matrix_set(d_tilde_z)
-
+         call tddfpt_use_unrelaxed_inact()
       end if
 
       ! Rotate res vector cpmos into original frame of occupied orbitals.
@@ -1663,6 +1593,267 @@ CONTAINS
    END SUBROUTINE tddfpt_add_H_T_res
 
 
+! **************************************************************************************************
+!> \brief Computes D_tilde^Z, H[D_tilde^Z] and adds them to T and H[T]
+!> \param qs_env ...
+!> \param matrix_pe ...
+!> \param gs_mos ...
+!> \param matrix_hz ...
+!> \param cpmos ...
+! **************************************************************************************************
+   SUBROUTINE tddfpt_use_unrelaxed_inact(qs_env, gs_mos, matrix_hz , matrix_pe, matrix_pe_admm, cpmos, cp_mos_active)
+      !name and envs 
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'tddfpt_add_H_T_res'
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
+         POINTER                                         :: gs_mos
+      TYPE(dft_control_type), POINTER                    :: dft_control
+
+      ! matrices and structs
+      TYPE(cp_fm_type)                                   :: work_ao_act, work_ao_inact 
+      TYPE(cp_fm_type), dimension(:), intent(inout)      :: cp_mos_active, cpmos
+      TYPE(cp_fm_type), dimension(:)                     :: cpmos_tilde
+      TYPE(dbcsr_p_type), intent(inout), DIMENSION(:), &
+                                                optional :: matrix_hz, matrix_pe, matrix_pe_admm
+      TYPE(dbcsr_p_type), DIMENSION(:)                   :: d_tilde_z, H_dz_res
+                                                 
+      ! integers and reals
+      INTEGER                                            :: n_active, n_inactive, nspins, nao, handle , ispin
+      real(kind=dp)                                      :: focc = 2.0_dp
+
+      CALL timeset(routineN, handle)
+
+      CALL get_qs_env(  qs_env        = qs_env,  & 
+                        dft_control   = dft_control)
+      call cp_fm_get_info(gs_mos(1)%mos_occ, nrow_global=nao)
+      nspins      = dft_control%nspins
+
+      if (nspins == 1 ) focc = 1
+
+      if (dft_control%do_admm) then
+         call cp_abort(__LOCATION__, "RES with ADMM nya!")
+      end if 
+
+      NULLIFY(H_dz_res, d_tilde_z)
+
+      CALL dbcsr_allocate_matrix_set(H_dz_res, nspins) !will hold H_munu[\tilde{D}^Z
+
+      DO ispin = 1, nspins
+         ALLOCATE(H_dz_res(ispin)%matrix) 
+         CALL dbcsr_create(matrix   = H_dz_res(ispin)%matrix, &
+                           template = matrix_s(1)%matrix)
+         CALL dbcsr_set(matrix   = H_dz_res(ispin)%matrix, &
+                        alpha    = 0.0_dp)
+      END DO
+
+      ALLOCATE(cpmos_tilde(nspins)) ! will hold H_mui[\tilde{D}^Z]
+      DO ispin = 1, nspins
+         CALL cp_fm_create(   matrix         = cpmos_tilde(ispin),      &
+                              matrix_struct  = gs_mos(ispin)%mos_occ%matrix_struct, &
+                              set_zero       = .True.)
+      END DO
+
+      CALL dbcsr_allocate_matrix_set(d_tilde_z, nspins) ! \tilde{D}^Z 
+      ! moved this out from tddfpt_build_inactive_trans_dens for easy overview of allocated memory
+
+      call tddfpt_build_inactive_trans_dens( qs_env         = qs_env,               &
+                                             gs_mos         = gs_mos,               &
+                                             cp_mos_active  = cp_mos_active,        &
+                                             d_tilde_z      = d_tilde_z)
+
+      call tddfpt_resvec2( qs_env         = qs_env,                  &
+                           matrix_pe      = d_tilde_z,               & !the inactive unrelaxed dens \tilde{D}^Z
+                           matrix_pe_admm = matrix_pe_admm,   & !todo
+                           gs_mos         = gs_mos,                  &
+                           matrix_hz      = H_dz_res,                & ! this should be H_munu[\tilde{D}^Z]
+                           cpmos          = cpmos_tilde )              ! and this H_mui[\tilde{D}^Z]
+
+      ! 4. Accumulate H[D_tilde^Z] and cpmos_tilde into ex_env%matrix_hz and ex_env%cpmos
+      DO ispin = 1, nspins
+         ! Add H[D_tilde^Z] to matrix_hz (used later for response_force)
+         CALL dbcsr_add(matrix_a       = matrix_hz(ispin)%matrix,   &
+                        matrix_b       = H_dz_res(ispin)%matrix,           &
+                        alpha_scalar   = 1.0_dp,                           &
+                        beta_scalar    = 1.0_dp)
+
+         ! Add H_mui[D_tilde^Z] to ex_env%cpmos (the full/active part R_mui)
+         CALL cp_fm_geadd( alpha    = 1.0_dp,               & ! cant this just be a cp_fm_scale_and_add???
+                           trans    = "N",                  &
+                           matrix_a = cpmos_tilde(ispin),   &
+                           beta     = 1.0_dp,               &
+                           matrix_b = cpmos(ispin))
+
+         ! Add D_tilde^Z to ex_env%matrix_pe (DT = T + D_tilde^Z) ! after response equation D^Z should also be added to this. Double check !!!
+         CALL dbcsr_add(matrix_a       = matrix_pe(ispin)%matrix,   &
+                        matrix_b       = d_tilde_z(ispin)%matrix,          &
+                        alpha_scalar   = 1.0_dp,                           &
+                        beta_scalar    = 1.0_dp)
+
+         ! Release cpmos_tilde, because H_mui[\tilde{D}^Z] is never needed on its own again
+         CALL cp_fm_release(cpmos_tilde(ispin))
+      END DO
+
+      ! 5. Clean up temporary memory
+      DEALLOCATE(cpmos_tilde)
+      CALL dbcsr_deallocate_matrix_set(H_dz_res)
+      CALL dbcsr_deallocate_matrix_set(d_tilde_z)
+
+
+
+      !  notiz für später später : P in responce force P = D^Z +T + D_tilde^Z
+   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! END RES !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+      CALL timestop(handle)
+   END SUBROUTINE tddfpt_add_H_T_res
+
+
+! **************************************************************************************************
+!> \brief Contracts Energy weighted \tilde{R_Ii} (aka Z_tilde) with the MOs to generate D_tilde_munu^Z as 1/2 sum_K (Z_muK C_nuK^T + C_muK Z_nuK^T) . 
+!> \brief 
+!> \param qs_env ...
+!> \param ex_env holds cp_mos_active(nspins) aka \tilde{R_Ii} 
+!> \param gs_mos ...
+!> \param debug_forces default .False. , pass .True. for debugging. Currently does nothing
+! **************************************************************************************************
+   SUBROUTINE tddfpt_build_inactive_trans_dens(qs_env, gs_mos, cp_mos_active, d_tilde_z)
+      
+      ! name and envs 
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'tddfpt_build_inactive_trans_dens'
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
+         POINTER                                         :: gs_mos
+      TYPE(dft_control_type), POINTER                    :: dft_control
+      TYPE(cp_logger_type), POINTER                      :: logger
+
+      ! matrices and structs
+      TYPE(cp_fm_type)                                   :: work_ao_ao, work_ao_inact
+      TYPE(cp_fm_struct_type), pointer                   :: fm_struct_ao_ao
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER, &
+                                    intent(inout)        :: d_tilde_z
+      TYPE(cp_fm_type), POINTER, dimension(:), &
+                                 intent(inout)           :: cp_mos_active
+
+      ! integers and reals
+      INTEGER                                            :: n_active, n_inactive, nspins, nao, handle, iounit 
+      INTEGER                                            :: ispin
+      REAL(KIND=dp)                                      :: focc = 2.0_dp
+
+      ! logicals
+      logical                                            :: debug_forces = .True.
+
+      CALL timeset(routineN, handle)
+
+      logger => cp_get_default_logger()
+      IF (logger%para_env%is_source()) THEN
+         iounit = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
+      ELSE
+         iounit = -1
+      END IF
+
+
+      IF (debug_forces) then
+         IF (iounit > 0) THEN
+            WRITE(iounit,'(A)') 'DEBUG: Entering tddfpt_build_inactive_trans_dens'
+            FLUSH(iounit)
+         END IF
+      end if
+
+
+      call get_qs_env(qs_env=qs_env , dft_control=dft_control, matrix_s=matrix_s)
+      nspins   = dft_control%nspins
+      call cp_fm_get_info(gs_mos(1)%mos_occ, nrow_global=nao) 
+      if (nspins == 2) focc = 1.0_dp
+
+
+      do ispin = 1, nspins
+         n_active          = gs_mos(ispin)%nmo_active
+         n_inactive        = gs_mos(ispin)%nmo_inactive
+
+         ! According to the Paper i need Z_tilde_muK . So step one: Contract Z with MOs
+
+
+         call cp_fm_create(matrix         = work_ao_inact, &
+                           matrix_struct  = gs_mos(ispin)%mos_inactive%matrix_struct)
+
+         call cp_fm_struct_create(  fmstruct         = fm_struct_ao_ao, & 
+                                    template_fmstruct = gs_mos(ispin)%mos_active%matrix_struct, & 
+                                    ncol_global       = nao, &
+                                    nrow_global       = nao)
+         call cp_fm_create(matrix         = work_ao_ao, &
+                           matrix_struct  = fm_struct_ao_ao)
+         call cp_fm_struct_release(fm_struct_ao_ao)
+
+
+         call parallel_gemm(  transa   = "N",                        &
+                              transb   = "T",                        &
+                              m        = nao  ,                      &
+                              n        = n_inactive,                 &
+                              k        = n_active ,                  & !is k always the dim we kick out? yes!
+                              alpha    = 1.0_dp,                     & 
+                              matrix_a = gs_mos(ispin)%mos_active ,  & !ao x mo_act
+                              matrix_b = cp_mos_active(ispin) ,      & !mo_inact x mo_act  -T> mo_act x mo_inact  
+                              beta     = 0.0_dp,                     & 
+                              matrix_c = work_ao_inact)                ! ao x mo_inact Contains Z_muK
+
+         ! now the first half of the Contraction. Actually this results in an ao x ao matrix and should be sparse. how do i get this into DBCSR?
+         call parallel_gemm(  transa   = "N",                        &
+                              transb   = "T",                        &
+                              m        = nao  ,                      &
+                              n        = nao,                        &
+                              k        = n_inactive ,                & 
+                              alpha    = 0.5_dp,                     & 
+                              matrix_a = work_ao_inact ,             & !ao x mo_inact
+                              matrix_b = gs_mos(ispin)%mos_inactive ,& !ao x mo_inact  -T> mo_inact x ao  
+                              beta     = 0.0_dp,                     & 
+                              matrix_c = work_ao_ao)                   !ao x ao 
+
+         ! now the second half for symmetrization
+
+         call parallel_gemm(  transa   = "N",                        &
+                              transb   = "T",                        &
+                              m        = nao  ,                      &
+                              n        = nao,                        &
+                              k        = n_inactive ,                & 
+                              alpha    = 0.5_dp,                     & 
+                              matrix_a = gs_mos(ispin)%mos_inactive ,& !ao x mo_inact
+                              matrix_b = work_ao_inact ,             & !ao x mo_inact  -T> mo_inact x ao  
+                              beta     = 1.0_dp,                     & 
+                              matrix_c = work_ao_ao)                   !ao x ao 
+
+         call cp_fm_release(work_ao_inact)
+
+
+         ! since the second part is just for symmetrisation. it might be faster 
+         ! to use cp_dbcsr_plus_fm_fm_t or smth
+         ! move and symmetrize ao x ao matrix to DBCSR 
+
+         ALLOCATE (d_tilde_z(ispin)%matrix)
+         call dbcsr_create(matrix   = d_tilde_z(ispin)%matrix, &
+                           name     = 'd_tilde_z', &
+                           template = matrix_s(1)%matrix)
+
+         !call dbcsr_set(matrix   = d_tilde_z(ispin)%matrix, & 
+         !               alpha    = 0.0_dp)
+
+         !call cp_dbcsr_plus_fm_fm_t(sparse_matrix  = d_tilde_z,     & ! does this give me the same result as the two gemms up there?
+         !                           matrix_v       = work_ao_inact, & 
+         !                           keep_sparsity  = .True.,        &
+         !                           symmetry_mode  = 1)
+
+
+         call copy_fm_to_dbcsr(  fm             = work_ao_ao, & 
+                                 matrix         = d_tilde_z(ispin)%matrix, &
+                                 keep_sparsity  = .True.)
+
+         call cp_fm_release(work_ao_ao)
+      end do 
+      
+            
+      
+
+      CALL timestop(handle)
+   end SUBROUTINE tddfpt_build_inactive_trans_dens  
 
 
 ! **************************************************************************************************
