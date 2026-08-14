@@ -1616,15 +1616,15 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
 
       ! matrices and structs
-      TYPE(cp_fm_type)                                   :: work_ao_act, work_ao_inact 
-      TYPE(cp_fm_type), dimension(:), intent(inout), pointer      :: cp_mos_active, cpmos
+      TYPE(cp_fm_type), dimension(:), intent(inout), &
+                                            pointer      :: cp_mos_active, cpmos
       TYPE(cp_fm_type), dimension(:), allocatable        :: cpmos_tilde
       TYPE(dbcsr_p_type), intent(inout), DIMENSION(:), &
                                    pointer,     optional :: matrix_hz, matrix_pe, matrix_pe_admm
       TYPE(dbcsr_p_type), DIMENSION(:), pointer          :: d_tilde_z, H_dz_res, matrix_s
                                                  
       ! integers and reals
-      INTEGER                                            :: n_active, n_inactive, nspins, nao, handle , ispin
+      INTEGER                                            :: nspins, nao, handle , ispin
       real(kind=dp)                                      :: focc = 2.0_dp
 
       CALL timeset(routineN, handle)
