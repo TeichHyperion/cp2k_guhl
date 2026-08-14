@@ -2207,7 +2207,7 @@ CONTAINS
          call cp_fm_create(matrix         = work_ao_inact, &
                            matrix_struct  = gs_mos(ispin)%mos_inactive%matrix_struct)
 
-         call cp_fm_struct_create(  fm_struct         = fm_struct_ao_ao, & 
+         call cp_fm_struct_create(  fmstruct         = fm_struct_ao_ao, & 
                                     template_fmstruct = gs_mos(ispin)%mos_active%matrix_struct, & 
                                     ncol_global       = nao, &
                                     nrow_global       = nao)
@@ -2365,7 +2365,7 @@ CONTAINS
       end do
 
       if ( has_degeneracy ) then
-         call cp_warn(__LOCATION__, "near degeneracy or degeneracy detected between inactive and act orbitals")
+         call cp_warn(__LOCATION__, "near degeneracy detected between inactive and act orbitals")
       end if
 
       CALL timestop(handle)
