@@ -2158,7 +2158,7 @@ CONTAINS
 
       ! matrices and structs
       TYPE(cp_fm_type)                                   :: work_ao_ao, work_ao_inact
-      TYPE(cp_fm_struct_type)                            :: fm_struct_ao_ao
+      TYPE(cp_fm_struct_type), pointer                   :: fm_struct_ao_ao
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER, &
                                     intent(inout)        :: d_tilde_z
