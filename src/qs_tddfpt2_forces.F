@@ -19,7 +19,7 @@ MODULE qs_tddfpt2_forces
                                               tddfpt2_control_type
    USE cp_dbcsr_api,                    ONLY: &
         dbcsr_add, dbcsr_complete_redistribute, dbcsr_copy, dbcsr_create, dbcsr_p_type, &
-        dbcsr_release, dbcsr_scale, dbcsr_set, dbcsr_type
+        dbcsr_release, dbcsr_scale, dbcsr_set, dbcsr_type, dbcsr_type_antisymmetric
    USE cp_dbcsr_contrib,                ONLY: dbcsr_dot
    USE cp_dbcsr_cp2k_link,              ONLY: cp_dbcsr_alloc_block_from_nbl
    USE cp_dbcsr_operations,             ONLY: copy_dbcsr_to_fm,&
@@ -1617,7 +1617,7 @@ CONTAINS
 
       ! matrices and structs
       TYPE(cp_fm_type)                                   :: work_ao_act, work_ao_inact 
-      TYPE(cp_fm_type), dimension(:), intent(inout)      :: cp_mos_active, cpmos
+      TYPE(cp_fm_type), dimension(:), intent(inout), pointer      :: cp_mos_active, cpmos
       TYPE(cp_fm_type), dimension(:), allocatable        :: cpmos_tilde
       TYPE(dbcsr_p_type), intent(inout), DIMENSION(:), &
                                    pointer,     optional :: matrix_hz, matrix_pe, matrix_pe_admm
