@@ -392,7 +392,13 @@ CONTAINS
 
       ! probably move this into a subroutine to keep things simple here
       if (do_res) then 
-         call tddfpt_use_unrelaxed_inact(qs_env, gs_mos, ex_env%matrix_hz , ex_env%matrix_pe, ex_env%matrix_pe_admm, ex_env%cpmos, ex_env%cp_mos_active)
+         call tddfpt_use_unrelaxed_inact( qs_env, &
+                                          gs_mos, &
+                                          ex_env%matrix_hz, &
+                                          ex_env%matrix_pe, &
+                                          ex_env%matrix_pe_admm, &
+                                          ex_env%cpmos, &
+                                          ex_env%cp_mos_active)
       end if
 
       ! Rotate res vector cpmos into original frame of occupied orbitals.
