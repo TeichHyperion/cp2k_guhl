@@ -392,7 +392,7 @@ CONTAINS
 
       ! probably move this into a subroutine to keep things simple here
       if (do_res) then 
-         call tddfpt_use_unrelaxed_inact()
+         call tddfpt_use_unrelaxed_inact(qs_env, gs_mos, matrix_hz , matrix_pe, matrix_pe_admm, cpmos, cp_mos_active)
       end if
 
       ! Rotate res vector cpmos into original frame of occupied orbitals.
@@ -1603,7 +1603,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE tddfpt_use_unrelaxed_inact(qs_env, gs_mos, matrix_hz , matrix_pe, matrix_pe_admm, cpmos, cp_mos_active)
       !name and envs 
-      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'tddfpt_add_H_T_res'
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'tddfpt_use_unrelaxed_inact'
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
          POINTER                                         :: gs_mos
@@ -1704,7 +1704,7 @@ CONTAINS
    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! END RES !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
       CALL timestop(handle)
-   END SUBROUTINE tddfpt_add_H_T_res
+   END SUBROUTINE tddfpt_use_unrelaxed_inact
 
 
 ! **************************************************************************************************
