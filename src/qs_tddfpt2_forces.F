@@ -19,7 +19,7 @@ MODULE qs_tddfpt2_forces
                                               tddfpt2_control_type
    USE cp_dbcsr_api,                    ONLY: &
         dbcsr_add, dbcsr_complete_redistribute, dbcsr_copy, dbcsr_create, dbcsr_p_type, &
-        dbcsr_release, dbcsr_scale, dbcsr_set, dbcsr_type, dbcsr_type_antisymmetric
+        dbcsr_release, dbcsr_scale, dbcsr_set, dbcsr_type
    USE cp_dbcsr_contrib,                ONLY: dbcsr_dot
    USE cp_dbcsr_cp2k_link,              ONLY: cp_dbcsr_alloc_block_from_nbl
    USE cp_dbcsr_operations,             ONLY: copy_dbcsr_to_fm,&
@@ -392,7 +392,7 @@ CONTAINS
 
       ! probably move this into a subroutine to keep things simple here
       if (do_res) then 
-         call tddfpt_use_unrelaxed_inact(qs_env, gs_mos, matrix_hz , matrix_pe, matrix_pe_admm, cpmos, cp_mos_active)
+         call tddfpt_use_unrelaxed_inact(qs_env, gs_mos, ex_env%matrix_hz , ex_env%matrix_pe, ex_env%matrix_pe_admm, ex_env%cpmos, ex_env%cp_mos_active)
       end if
 
       ! Rotate res vector cpmos into original frame of occupied orbitals.
@@ -1612,10 +1612,10 @@ CONTAINS
       ! matrices and structs
       TYPE(cp_fm_type)                                   :: work_ao_act, work_ao_inact 
       TYPE(cp_fm_type), dimension(:), intent(inout)      :: cp_mos_active, cpmos
-      TYPE(cp_fm_type), dimension(:)                     :: cpmos_tilde
+      TYPE(cp_fm_type), dimension(:), allocatable        :: cpmos_tilde
       TYPE(dbcsr_p_type), intent(inout), DIMENSION(:), &
-                                                optional :: matrix_hz, matrix_pe, matrix_pe_admm
-      TYPE(dbcsr_p_type), DIMENSION(:)                   :: d_tilde_z, H_dz_res
+                                   pointer,     optional :: matrix_hz, matrix_pe, matrix_pe_admm
+      TYPE(dbcsr_p_type), DIMENSION(:), pointer          :: d_tilde_z, H_dz_res, matrix_s
                                                  
       ! integers and reals
       INTEGER                                            :: n_active, n_inactive, nspins, nao, handle , ispin
@@ -1623,8 +1623,9 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      CALL get_qs_env(  qs_env        = qs_env,  & 
-                        dft_control   = dft_control)
+      CALL get_qs_env(  qs_env         = qs_env,  & 
+                        dft_control    = dft_control,&
+                        matrix_s       = matrix_s)
       call cp_fm_get_info(gs_mos(1)%mos_occ, nrow_global=nao)
       nspins      = dft_control%nspins
 
